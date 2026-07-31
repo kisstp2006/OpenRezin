@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="../ECS/ECS.fsproj" Id="139db6b5-2eb1-45df-80cb-57987c35f0e0" />
   <Project Path="../Foundation/Foundation.csproj" />
   <Project Path="RezinEngine.csproj" />
 </Solution>

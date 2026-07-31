@@ -1,4 +1,6 @@
-﻿
+﻿// Copyright (c) 2026 Kiss Tibor Péter
+// Dual-licensed under the MIT License and MIT No Attribution (MIT-0) — see LICENSE.txt
+
 using Foundation.Types;
 
 namespace Foundation.Containers
@@ -63,6 +65,15 @@ namespace Foundation.Containers
 
             value = default;
             return false;
+        }
+
+        public void Update(Id id, T value)
+        {
+            if (IsValidId(id))
+            {
+                values[id.Index] = value;
+            }
+
         }
     }
 }
