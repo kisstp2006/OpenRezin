@@ -1,4 +1,4 @@
-# RezinEngine
+# OpenRezin
 
 Yes, this is another of my "game engine project" but this one with a different goal , a game engine withouth AI code and i make it dual licensed so if anyone uses it and want to give credit they can but if they dont want to then thats okay too. 
 
