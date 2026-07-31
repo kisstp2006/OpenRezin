@@ -22,6 +22,7 @@ namespace Foundation.Strings
             value = str;
         }
 
+
         private static ulong ComputeHash(string str)
         {
             const ulong offsetBasis = 14695981039346656037;
@@ -58,6 +59,51 @@ namespace Foundation.Strings
         {
             handle = hstr.handle;
             value = hstr.value;
+        }
+
+        public override bool Equals(object? obj)
+        {
+            return obj is HashString other && this == other;
+        }
+
+        public override int GetHashCode()
+        {
+            return (int)(handle ^ (handle >> 32));
+        }
+
+        public static bool operator <(HashString left, HashString right)
+        {
+            return left.handle < right.handle;
+        }
+
+        public static bool operator >(HashString left, HashString right)
+        {
+            return left.handle > right.handle;
+        }
+
+        public static bool operator >=(HashString left, HashString right)
+        {
+            return left.handle >= right.handle;
+        }
+
+        public static bool operator <=(HashString left, HashString right)
+        {
+            return left.handle <= right.handle;
+        }
+
+        public static bool operator ==(HashString left, HashString right)
+        {
+            return left.handle == right.handle;
+        }
+
+        public static bool operator !=(HashString left, HashString right)
+        {
+            return left.handle != right.handle;
+        }
+
+        public static implicit operator bool(HashString hs)
+        {
+            return hs.handle != 0;
         }
 
     }
