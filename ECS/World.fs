@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Kiss Tibor Péter
 // Dual-licensed under the MIT License and MIT No Attribution (MIT-0) — see LICENSE.txt
 
-module ECS.World
+namespace ECS.World
 
 open System
 open System.Collections.Generic
@@ -46,9 +46,9 @@ type World() =
             match componentStores.TryGetValue(componentType)with
             |true, existing -> existing :?> ResizeArray<'T>
             |false, _ ->
-            let newStore = ResizeArray<'T>()
-            componentStores.[componentType] <- newStore
-            newStore
+                let newStore = ResizeArray<'T>()
+                componentStores.[componentType] <- newStore
+                newStore
 
         // Pad the array with default values until it's long enough to be indexed
         // directly by this entity's index (this is a plain flat array, not an
@@ -67,3 +67,27 @@ type World() =
             mask.SetBit(componentTypes.GetIndex<'T>())
             entityMasks.Update(entity, mask)
         | false, _ -> ()
+
+    //It checks if we have a component on our Cog (gameobhect) and if we do we get the 'T and if we didnt we get None (null)
+    member this.Has<'T>(entity: Entity) : bool =
+        match entityMasks.TryGet(entity) with
+        | true, mask -> mask.IsBitSet(componentTypes.GetIndex<'T>())
+        | false, _ -> false
+
+    member this.GetComponent<'T>(entity: Entity) : 'T option =
+        if not (this.Has<'T>(entity)) then
+            None
+        else
+            let store = componentStores.[typeof<'T>] :?> ResizeArray<'T>
+            Some store.[entity.Index]
+
+    member this.RemoveComponent<'T>(entity: Entity) =
+        if this.Has<'T>(entity) then
+            match entityMasks.TryGet(entity) with
+            | true, mask ->
+                mask.ClearBit(componentTypes.GetIndex<'T>())
+                entityMasks.Update(entity, mask)
+            | false, _ -> ()
+
+            let store = componentStores.[typeof<'T>] :?> ResizeArray<'T>
+            store.[entity.Index] <- Unchecked.defaultof<'T>
