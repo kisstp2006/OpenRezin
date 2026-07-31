@@ -10,3 +10,10 @@ This engine is for those who want to get away from the bing 3 (maybe exclude God
 - [EzEngine](https://github.com/ezEngine/ezEngine)
 - [Stride](https://github.com/stride3d/stride)
 - [EDU Game Engine](https://github.com/d0n3val/Edu-Game-Engine)
+
+## License
+
+Dual-licensed, pick whichever you prefer:
+
+- [MIT License](LICENSE.txt) — if you want to keep the copyright notice
+- MIT No Attribution (MIT-0) — same permissions, no attribution required
