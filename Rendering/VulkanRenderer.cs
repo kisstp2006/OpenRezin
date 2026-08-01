@@ -31,6 +31,17 @@ namespace Rendering
 
         private SwapchainKHR swapchain;
 
+        // Cached from CreateSwapchain so later steps (image views, resize)
+        // don't need to recompute them.
+        private Image[] swapchainImages;
+        private Format swapchainImageFormat;
+        private Extent2D swapchainExtent;
+
+
+        private ImageView[] swapchainImageViews;
+        
+
+
 
         /// <summary>
         /// // Represents the indices of the queue families that are required for rendering.
@@ -57,6 +68,7 @@ namespace Rendering
             SelectPhysicalDevice();
             CreateLogicalDevice();
             CreateSwapchain(window);
+            CreateImageViews();
         }
 
         private void CreateInstance(SilkWindow window)
@@ -358,6 +370,19 @@ namespace Rendering
                     throw new Exception("Failed to create swapchain.");
                  }
 
+                // Driver may have created more images than we asked for,
+                // so re-query the real count before allocating the array.
+                uint swapchainImageCount = 0;
+                khrSwapchain.GetSwapchainImages(device, swapchain, ref swapchainImageCount, null);
+                swapchainImages = new Image[swapchainImageCount];
+                fixed (Image* swapchainImagesPtr = swapchainImages)
+                {
+                    // Second call fills the pinned array with the actual image handles.
+                    khrSwapchain.GetSwapchainImages(device, swapchain, ref swapchainImageCount, swapchainImagesPtr);
+                }
+                // Save for later steps - the local chosenFormat/extent go out of scope here.
+                swapchainImageFormat = chosenFormat.Format;
+                swapchainExtent = extent;
             }
             else
             {
@@ -365,6 +390,43 @@ namespace Rendering
                 throw new Exception("Failed to get surface capabilities.");
             }
         }
+        private void CreateImageViews()
+        {
+            swapchainImageViews = new ImageView[swapchainImages.Length];
+
+            for (int i = 0; i < swapchainImages.Length; i++)
+            {
+                var createInfo = new ImageViewCreateInfo
+                {
+                    SType = StructureType.ImageViewCreateInfo,
+                    Image = swapchainImages[i],
+                    ViewType = ImageViewType.Type2D,
+                    Format = swapchainImageFormat,
+                    Components = new ComponentMapping
+                    {
+                        R = ComponentSwizzle.Identity,
+                        G = ComponentSwizzle.Identity,
+                        B = ComponentSwizzle.Identity,
+                        A = ComponentSwizzle.Identity
+                    },
+                    SubresourceRange = new ImageSubresourceRange
+                    {
+                        AspectMask = ImageAspectFlags.ColorBit,
+                        BaseMipLevel = 0,
+                        LevelCount = 1,
+                        BaseArrayLayer = 0,
+                        LayerCount = 1
+                    }
+                };
+            if (vk.CreateImageView(device, in createInfo, null, out swapchainImageViews[i]) != Result.Success)
+            {
+                Log.Error($"Failed to create image view for swapchain image {i}.");
+                throw new Exception($"Failed to create image view for swapchain image {i}.");
+            }
+            }
+
+        }
+
         public void Clear(Foundation.Math.Color color)
         {
             
