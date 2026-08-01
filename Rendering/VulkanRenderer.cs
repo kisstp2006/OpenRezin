@@ -9,6 +9,7 @@ using Silk.NET.Core;
 using Silk.NET.SDL;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
+using Silk.NET.Windowing;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -25,6 +26,11 @@ namespace Rendering
 
         private KhrSurface? khrSurface;
         private SurfaceKHR surface;
+
+        private KhrSwapchain? khrSwapchain;
+
+        private SwapchainKHR swapchain;
+
 
         /// <summary>
         /// // Represents the indices of the queue families that are required for rendering.
@@ -200,23 +206,30 @@ namespace Rendering
 
             var deviceFeatures = new PhysicalDeviceFeatures();
 
-            var createInfo = new DeviceCreateInfo
-            {
-                SType = StructureType.DeviceCreateInfo,
-                QueueCreateInfoCount = 1,
-                PQueueCreateInfos = &queueCreateInfo,
-                EnabledExtensionCount = 0,
-                EnabledLayerCount = 0,
-                PEnabledFeatures = &deviceFeatures
-            };
+            byte* extensionName = (byte*)Marshal.StringToHGlobalAnsi("VK_KHR_swapchain");
+            byte*[] deviceExtensions = new byte*[] { extensionName };
 
-            
-            // The actual "connection" to the GPU - every later Vulkan call goes through this.
-            if (vk.CreateDevice(physicalDevice, in createInfo, null, out device) != Result.Success)
+            fixed (byte** deviceExtensionsPtr = deviceExtensions)
             {
-                Log.Error("Failed to create logical device.");
-                throw new Exception("Failed to create logical device.");
+                var createInfo = new DeviceCreateInfo
+                {
+                    SType = StructureType.DeviceCreateInfo,
+                    QueueCreateInfoCount = 1,
+                    PQueueCreateInfos = &queueCreateInfo,
+                    EnabledExtensionCount = (uint)deviceExtensions.Length,
+                    PpEnabledExtensionNames = deviceExtensionsPtr,
+                    EnabledLayerCount = 0,
+                    PEnabledFeatures = &deviceFeatures
+                };
+
+                if (vk.CreateDevice(physicalDevice, in createInfo, null, out device) != Result.Success)
+                {
+                    Log.Error("Failed to create logical device.");
+                    throw new Exception("Failed to create logical device.");
+                }
             }
+
+            Marshal.FreeHGlobal((IntPtr)extensionName);
 
             // Fetch the usable queue handle for the family we picked above.
             vk.GetDeviceQueue(device, indices.GraphicsFamily!.Value, 0, out graphicsQueue);
@@ -258,6 +271,7 @@ namespace Rendering
 
                 uint presentModeCount = 0;
                 PresentModeKHR[] presentModes = new PresentModeKHR[presentModeCount];
+
                 // lets create a fixed array in the memory containing the formats and pass it to the function to fill it with the formats
                 fixed (SurfaceFormatKHR* formatsPtr = formats)
                 {
@@ -307,6 +321,42 @@ namespace Rendering
                 {
                     extent = capabilities.CurrentExtent;
                 }
+
+                uint imageCount = capabilities.MinImageCount + 1;
+
+                if(capabilities.MaxImageCount>0 && imageCount > capabilities.MaxImageCount)
+                    imageCount = capabilities.MaxImageCount;
+
+                if (!vk.TryGetDeviceExtension<KhrSwapchain>(instance, device, out khrSwapchain))
+                {
+                    Log.Error("VK_KHR_swapchain extension not found.");
+                    throw new NotSupportedException("VK_KHR_swapchain extension not found.");
+                }
+
+
+                SwapchainCreateInfoKHR swapchainCreateInfo = new SwapchainCreateInfoKHR
+                {
+                    SType = StructureType.SwapchainCreateInfoKhr,
+                    Surface = surface,
+                    MinImageCount = imageCount,
+                    ImageFormat = chosenFormat.Format,
+                    ImageColorSpace = chosenFormat.ColorSpace,
+                    ImageExtent = extent,
+                    ImageArrayLayers = 1,
+                    ImageSharingMode= SharingMode.Exclusive,
+                    ImageUsage = ImageUsageFlags.ColorAttachmentBit,
+                    PreTransform = capabilities.CurrentTransform,
+                    CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr,
+                    PresentMode = chosenPresentMode,
+                    Clipped = true,
+                    OldSwapchain = default
+                };
+
+                 if(khrSwapchain.CreateSwapchain(device, in swapchainCreateInfo, null, out swapchain) != Result.Success)
+                 {
+                    Log.Error("Failed to create swapchain.");
+                    throw new Exception("Failed to create swapchain.");
+                 }
 
             }
             else
