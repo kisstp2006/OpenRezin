@@ -42,6 +42,8 @@ namespace Rendering
 
         private RenderPass renderPass;
 
+        private PipelineLayout pipelineLayout;
+
         /// <summary>
         /// // Represents the indices of the queue families that are required for rendering.
         /// </summary>
@@ -484,6 +486,152 @@ namespace Rendering
             }
 
         }
+
+        private ShaderModule CreateShaderModule(byte[] code)
+        {
+            fixed (byte* codePtr = code)
+            {
+                // SPIR-V is defined as a stream of 32-bit words, so PCode wants uint*
+                // even though we read the file as raw bytes.
+                var createInfo = new ShaderModuleCreateInfo
+                {
+                    SType = StructureType.ShaderModuleCreateInfo,
+                    CodeSize = (nuint)code.Length,
+                    PCode = (uint*)codePtr
+                };
+
+                if (vk.CreateShaderModule(device, in createInfo, null, out ShaderModule shaderModule) != Result.Success)
+                {
+                    Log.Error("Failed to create shader module.");
+                    throw new Exception("Failed to create shader module.");
+                }
+
+                return shaderModule;
+            }
+        }
+        private void CreateGraphicsPipeline()
+        {
+            // Raw SPIR-V bytecode compiled ahead of time from the GLSL sources via glslc.
+            byte[] vertShaderCode = File.ReadAllBytes("Shaders/triangle.vert.spv");
+            byte[] fragShaderCode = File.ReadAllBytes("Shaders/triangle.frag.spv");
+
+            ShaderModule vertexShaderModule = CreateShaderModule(vertShaderCode);
+            ShaderModule fragmentShaderModule = CreateShaderModule(fragShaderCode);
+
+            // Binds each shader module to its pipeline stage; "main" is the GLSL entry point.
+            var vertShaderStageInfo = new PipelineShaderStageCreateInfo
+            {
+                SType = StructureType.PipelineShaderStageCreateInfo,
+                Stage = ShaderStageFlags.VertexBit,
+                Module = vertexShaderModule,
+                PName = (byte*)Marshal.StringToHGlobalAnsi("main")
+            };
+
+            var fragShaderStageInfo = new PipelineShaderStageCreateInfo
+            {
+                SType = StructureType.PipelineShaderStageCreateInfo,
+                Stage = ShaderStageFlags.FragmentBit,
+                Module = fragmentShaderModule,
+                PName = (byte*)Marshal.StringToHGlobalAnsi("main")
+            };
+
+            PipelineShaderStageCreateInfo[] shaderStages = new PipelineShaderStageCreateInfo[] { vertShaderStageInfo, fragShaderStageInfo };
+
+            // No vertex buffer yet - the triangle's positions/colors are hardcoded in the shader.
+            var vertexInputInfo = new PipelineVertexInputStateCreateInfo
+            {
+                SType = StructureType.PipelineVertexInputStateCreateInfo,
+                VertexBindingDescriptionCount = 0,
+                PVertexBindingDescriptions = null,
+                VertexAttributeDescriptionCount = 0,
+                PVertexAttributeDescriptions = null
+            };
+
+            // Every 3 vertices form one independent triangle (like GL_TRIANGLES in OpenGL).
+            var inputAssembly = new PipelineInputAssemblyStateCreateInfo
+            {
+                SType = StructureType.PipelineInputAssemblyStateCreateInfo,
+                Topology = PrimitiveTopology.TriangleList,
+                PrimitiveRestartEnable = false
+            };
+
+            var viewport = new Viewport
+            {
+                X = 0,
+                Y = 0,
+                Width = swapchainExtent.Width,
+                Height = swapchainExtent.Height,
+                MinDepth = 0,
+                MaxDepth = 1
+            };
+
+            var scissor = new Rect2D
+            {
+                Offset = new Offset2D(0, 0),
+                Extent = swapchainExtent
+            };
+
+            var viewportState = new PipelineViewportStateCreateInfo
+            {
+                SType = StructureType.PipelineViewportStateCreateInfo,
+                ViewportCount = 1,
+                PViewports = &viewport,
+                ScissorCount = 1,
+                PScissors = &scissor
+            };
+
+            var rasterizer = new PipelineRasterizationStateCreateInfo
+            {
+                SType = StructureType.PipelineRasterizationStateCreateInfo,
+                DepthClampEnable = false,
+                RasterizerDiscardEnable = false,
+                PolygonMode = PolygonMode.Fill,
+                LineWidth = 1.0f,
+                CullMode = CullModeFlags.BackBit,
+                FrontFace = FrontFace.Clockwise,
+                DepthBiasEnable = false
+            };
+
+            var multisampling = new PipelineMultisampleStateCreateInfo
+            {
+                SType = StructureType.PipelineMultisampleStateCreateInfo,
+                SampleShadingEnable = false,
+                RasterizationSamples = SampleCountFlags.Count1Bit
+            };
+
+            var colorBlendAttachment = new PipelineColorBlendAttachmentState
+            {
+                ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit
+                    | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
+                BlendEnable = false
+            };
+
+            var colorBlending = new PipelineColorBlendStateCreateInfo
+            {
+                SType = StructureType.PipelineColorBlendStateCreateInfo,
+                LogicOpEnable = false,
+                AttachmentCount = 1,
+                PAttachments = &colorBlendAttachment
+            };
+
+            var pipelineLayoutInfo = new PipelineLayoutCreateInfo
+            {
+                SType = StructureType.PipelineLayoutCreateInfo,
+                SetLayoutCount = 0,
+                PushConstantRangeCount = 0
+            };
+
+            if (vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out pipelineLayout) != Result.Success)
+            {
+                Log.Error("Failed to create pipeline layout.");
+                throw new Exception("Failed to create pipeline layout.");
+            }
+
+            //We can destroy the shader modules after creating the pipeline, as they are no longer needed.
+            vk.DestroyShaderModule(device, vertexShaderModule, null);
+            vk.DestroyShaderModule(device, fragmentShaderModule, null);
+        }
+
         public void Clear(Foundation.Math.Color color)
         {
             

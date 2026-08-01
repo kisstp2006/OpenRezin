@@ -13,4 +13,11 @@
     <ProjectReference Include="..\Rendering\Rendering.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\Rendering\Shaders\*.spv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Shaders\%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+
 </Project>
