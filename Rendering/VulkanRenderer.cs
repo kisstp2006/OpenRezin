@@ -39,9 +39,8 @@ namespace Rendering
 
 
         private ImageView[] swapchainImageViews;
-        
 
-
+        private RenderPass renderPass;
 
         /// <summary>
         /// // Represents the indices of the queue families that are required for rendering.
@@ -69,11 +68,13 @@ namespace Rendering
             CreateLogicalDevice();
             CreateSwapchain(window);
             CreateImageViews();
+            CreateRenderPass();
         }
 
         private void CreateInstance(SilkWindow window)
         {
             ArgumentNullException.ThrowIfNull(window);
+            // Identifies the app/engine to the driver and validation layers.
             var appInfo = new ApplicationInfo
             {
                 SType = StructureType.ApplicationInfo,
@@ -84,6 +85,7 @@ namespace Rendering
                 ApiVersion = Vk.Version13
             };
 
+            // Ask the windowing library which instance extensions the OS needs for presentation.
             var reqiredExtensions = window.NativeWindow.VkSurface!.GetRequiredExtensions(out uint extensionCount);
 
             var createInfo = new InstanceCreateInfo
@@ -101,13 +103,15 @@ namespace Rendering
                 throw new Exception("Failed to create Vulkan instance.");
             }
 
+            // The native strings were only needed for the call above.
             Marshal.FreeHGlobal((IntPtr)appInfo.PApplicationName);
             Marshal.FreeHGlobal((IntPtr)appInfo.PEngineName);
 
 
-            
+
         }
 
+        // Prefers a discrete GPU, falls back to integrated, then to whatever is available.
         private void SelectPhysicalDevice(bool preferDiscreteGPU = true)
         {
             var devices = vk.GetPhysicalDevices(instance);
@@ -141,6 +145,7 @@ namespace Rendering
                     }
                 }
             }
+            // No preferred GPU type found - fall back to the first available device.
             if (physicalDevice.Handle == 0)
                 physicalDevice = devices.FirstOrDefault();
 
@@ -219,6 +224,8 @@ namespace Rendering
 
             var deviceFeatures = new PhysicalDeviceFeatures();
 
+            // VK_KHR_swapchain is a device-level extension - it must be enabled here,
+            // not at instance creation, or its functions won't be loadable later.
             byte* extensionName = (byte*)Marshal.StringToHGlobalAnsi("VK_KHR_swapchain");
             byte*[] deviceExtensions = new byte*[] { extensionName };
 
@@ -248,6 +255,7 @@ namespace Rendering
             vk.GetDeviceQueue(device, indices.GraphicsFamily!.Value, 0, out graphicsQueue);
         }
 
+        // Wraps the native OS window handle in a Vulkan-presentable surface.
         private void CreateSurface(SilkWindow window)
         {
             if (window == null)
@@ -391,12 +399,14 @@ namespace Rendering
                 throw new Exception("Failed to get surface capabilities.");
             }
         }
+        // Each raw swapchain image needs its own view before the GPU can use it as a render target.
         private void CreateImageViews()
         {
             swapchainImageViews = new ImageView[swapchainImages.Length];
 
             for (int i = 0; i < swapchainImages.Length; i++)
             {
+                // Plain 2D color image, no mips, no array layers - matches a swapchain image.
                 var createInfo = new ImageViewCreateInfo
                 {
                     SType = StructureType.ImageViewCreateInfo,
@@ -427,7 +437,53 @@ namespace Rendering
             }
 
         }
+        private void CreateRenderPass()
+        {
+            // Single color attachment: clear at the start of the pass, keep the
+            // result so it can be presented once the pass ends.
+            var colorAttachment = new AttachmentDescription
+            {
+                Format = swapchainImageFormat,
+                Samples = SampleCountFlags.Count1Bit,
+                LoadOp = AttachmentLoadOp.Clear,
+                StoreOp = AttachmentStoreOp.Store,
+                StencilLoadOp = AttachmentLoadOp.DontCare,
+                StencilStoreOp = AttachmentStoreOp.DontCare,
+                InitialLayout = ImageLayout.Undefined,
+                FinalLayout = ImageLayout.PresentSrcKhr
+            };
 
+            // Points the subpass at attachment index 0 (the one defined above).
+            var colorAttachmentRef = new AttachmentReference
+            {
+                Attachment = 0,
+                Layout = ImageLayout.ColorAttachmentOptimal
+            };
+
+            // One graphics subpass that writes to our single color attachment.
+            var subpass = new SubpassDescription
+            {
+                PipelineBindPoint = PipelineBindPoint.Graphics,
+                ColorAttachmentCount = 1,
+                PColorAttachments = &colorAttachmentRef
+            };
+
+            var renderPassInfo = new RenderPassCreateInfo
+            {
+                SType = StructureType.RenderPassCreateInfo,
+                AttachmentCount = 1,
+                PAttachments = &colorAttachment,
+                SubpassCount = 1,
+                PSubpasses = &subpass
+            };
+
+            if (vk.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
+            {
+                Log.Error("Failed to create render pass.");
+                throw new Exception("Failed to create render pass.");
+            }
+
+        }
         public void Clear(Foundation.Math.Color color)
         {
             
