@@ -34,21 +34,24 @@ namespace Rendering
             // Nullable because we don't know yet whether this GPU even has a queue family
             // that supports graphics - it starts "unset" until FindQueueFamilis finds one.
             public uint? GraphicsFamily { get; set; }
-
+            // Nullable because we don't know yet whether this GPU even has a queue family yet
+            public uint? PresentFamily { get; set; }
             // True once every queue family we need (currently just graphics) has been found.
-            public bool IsComplete() => GraphicsFamily.HasValue;
+            public bool IsComplete() => GraphicsFamily.HasValue && PresentFamily.HasValue;
+
+        
         }
 
         public VulkanRenderer(SilkWindow window)
         {
             vk = Vk.GetApi();
             CreateInstance(window);
+            CreateSurface(window);
             Log.Info("VulkanRenderer initialized successfully.");
             SelectPhysicalDevice();
             CreateLogicalDevice();
-            CreateSurface(window);
+            CreateSwapchain(window);
         }
-
 
         private void CreateInstance(SilkWindow window)
         {
@@ -128,7 +131,7 @@ namespace Rendering
                     throw new Exception("No GPUs found with Vulkan support.");
                 }
         }
-        private QueueFamilyIndices FindQueueFamilies(PhysicalDevice device)
+        private QueueFamilyIndices FindQueueFamilies(PhysicalDevice device, SurfaceKHR surface)
         {
             QueueFamilyIndices indices = new QueueFamilyIndices();
 
@@ -156,6 +159,13 @@ namespace Rendering
                 if (queueFamily.QueueFlags.HasFlag(QueueFlags.GraphicsBit))
                     indices.GraphicsFamily = i;
 
+                if (khrSurface!.GetPhysicalDeviceSurfaceSupport(device, i, surface, out Bool32 presentSupport) == Result.Success)
+                {
+                    // Bool32 stores 0 or 1 in .Value
+                    if (presentSupport.Value != 0)
+                        indices.PresentFamily = i;
+                }
+
                 if (indices.IsComplete())
                     break;
 
@@ -167,7 +177,7 @@ namespace Rendering
 
         private void CreateLogicalDevice()
         {
-            var indices = FindQueueFamilies(physicalDevice);
+            var indices = FindQueueFamilies(physicalDevice, surface);
             float queuePriority = 1.0f;
 
             // The "!" only silences the compiler - it doesn't guarantee a value,
@@ -234,6 +244,75 @@ namespace Rendering
             {
                 Log.Error($"Failed to create Vulkan surface: {ex.Message}");
                 throw new Exception("Failed to create Vulkan surface.", ex);
+            }
+        }
+
+        private void CreateSwapchain(SilkWindow window)
+        {
+            if(khrSurface!.GetPhysicalDeviceSurfaceCapabilities(physicalDevice, surface, out SurfaceCapabilitiesKHR capabilities) == Result.Success){
+                uint formatCount = 0;
+
+                khrSurface.GetPhysicalDeviceSurfaceFormats(physicalDevice, surface, ref formatCount, null);
+                //lets allocate an array for the formats with the exact size
+                SurfaceFormatKHR[] formats = new SurfaceFormatKHR[formatCount];
+
+                uint presentModeCount = 0;
+                PresentModeKHR[] presentModes = new PresentModeKHR[presentModeCount];
+                // lets create a fixed array in the memory containing the formats and pass it to the function to fill it with the formats
+                fixed (SurfaceFormatKHR* formatsPtr = formats)
+                {
+                    khrSurface.GetPhysicalDeviceSurfaceFormats(physicalDevice, surface, ref formatCount, formatsPtr);
+                }
+                SurfaceFormatKHR chosenFormat = formats[0];
+
+                foreach (var format in formats)
+                {
+                    if (format.Format == Format.B8G8R8A8Srgb && format.ColorSpace == ColorSpaceKHR.SpaceSrgbNonlinearKhr)
+                    {
+                        chosenFormat = format;
+                        break;
+                    }
+                }
+                khrSurface.GetPhysicalDeviceSurfacePresentModes(physicalDevice, surface, ref presentModeCount, null);
+                presentModes = new PresentModeKHR[presentModeCount];
+                PresentModeKHR chosenPresentMode = PresentModeKHR.FifoKhr;
+
+                fixed (PresentModeKHR* presentModesPtr = presentModes)
+                {
+                    khrSurface.GetPhysicalDeviceSurfacePresentModes(physicalDevice, surface, ref presentModeCount, presentModesPtr);
+                }
+
+                foreach(var presentMode in presentModes)
+                {
+                    if (presentMode == PresentModeKHR.MailboxKhr)
+                    {
+                        Log.Info("Selected present mode: Mailbox");
+                        chosenPresentMode = presentMode;
+                        break;
+                    }
+                }
+
+                Extent2D extent;
+
+                if (capabilities.CurrentExtent.Width == uint.MaxValue)
+                {
+                    extent = new Extent2D
+                    {
+                        Width = Math.Clamp((uint)window.Width, capabilities.MinImageExtent.Width, capabilities.MaxImageExtent.Width),
+
+                        Height = Math.Clamp((uint)window.Height, capabilities.MinImageExtent.Height, capabilities.MaxImageExtent.Height)
+                    };
+                }
+                else
+                {
+                    extent = capabilities.CurrentExtent;
+                }
+
+            }
+            else
+            {
+                Log.Error("Failed to get surface capabilities.");
+                throw new Exception("Failed to get surface capabilities.");
             }
         }
         public void Clear(Foundation.Math.Color color)

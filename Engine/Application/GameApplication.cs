@@ -29,7 +29,7 @@ namespace Engine.Application
                 renderer.Resize(e.Width, e.Height);
             });
 
-            Log.Info("Apllication initialized successfully.");
+            Log.Info("Application initialized successfully.");
         }
 
         public void Run()
@@ -49,8 +49,9 @@ namespace Engine.Application
 
         public static GameApplication Create(string title, int width, int height, RendererBackend backend)
         {
-            IWindow window;
-            IRenderer renderer;
+            // Provide safe defaults so variables are always definitely assigned
+            IWindow window = new NullWindow();
+            IRenderer renderer = new NullRenderer();
 
             switch(backend)
             {
