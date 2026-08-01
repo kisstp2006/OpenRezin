@@ -65,9 +65,9 @@ namespace Engine.Application
                 renderer = new VulkanRenderer(silkWindow);
                 break;
                 case RendererBackend.OpenGL:
-                // we dont have opengl backend fornow se we dont create a backend
-                window = new NullWindow();
-                renderer = new NullRenderer();
+                var silkWindowGL = new SilkWindow(title, width, height, backend);
+                window = silkWindowGL;
+                renderer = new OpenGLRenderer(silkWindowGL);
                 break;
             }
             return new GameApplication(window, renderer);

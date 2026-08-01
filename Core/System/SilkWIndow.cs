@@ -12,11 +12,12 @@ namespace Core.System
        
         private readonly SilkIWindow window;
 
-        public SilkWindow(string title, int width, int height, RendererBackend backend = RendererBackend.Vulkan)
+        public SilkWindow(string title, int width, int height, RendererBackend backend = RendererBackend.Vulkan,bool swapAutomatically = false)
         {
             var options = backend == RendererBackend.Vulkan ? WindowOptions.DefaultVulkan : WindowOptions.Default;
             options.Title = title;
             options.Size = new Vector2D<int>(width, height);
+            options.ShouldSwapAutomatically = swapAutomatically; // We will handle buffer swapping manually in the renderer
 
             window = Silk.NET.Windowing.Window.Create(options);
             window.Initialize();
