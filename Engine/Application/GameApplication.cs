@@ -2,6 +2,7 @@
 // Dual-licensed under the MIT License and MIT No Attribution (MIT-0) — see LICENSE.txt
 
 using Core.System;
+using Foundation;
 using Foundation.Logger;
 using Foundation.Math;
 using Foundation.Time;
@@ -44,6 +45,31 @@ namespace Engine.Application
 
                 clock.LimitFrameRate();
             }
+        }
+
+        public static GameApplication Create(string title, int width, int height, RendererBackend backend)
+        {
+            IWindow window;
+            IRenderer renderer;
+
+            switch(backend)
+            {
+                case RendererBackend.Null:
+                window = new NullWindow();
+                renderer = new NullRenderer();
+                break;
+                case RendererBackend.Vulkan:
+                var silkWindow = new SilkWindow(title, width, height, backend);
+                window = silkWindow;
+                renderer = new VulkanRenderer(silkWindow);
+                break;
+                case RendererBackend.OpenGL:
+                // we dont have opengl backend fornow se we dont create a backend
+                window = new NullWindow();
+                renderer = new NullRenderer();
+                break;
+            }
+            return new GameApplication(window, renderer);
         }
     }
 }
