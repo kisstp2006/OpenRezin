@@ -2,6 +2,7 @@
   <Project Path="../Core/Core.csproj" />
   <Project Path="../ECS/ECS.fsproj" Id="139db6b5-2eb1-45df-80cb-57987c35f0e0" />
   <Project Path="../Foundation/Foundation.csproj" />
+  <Project Path="../Rendering/Rendering.csproj" />
   <Project Path="../RezinTUI/TinyTUI.csproj" />
   <Project Path="../Sandbox/Sandbox.csproj" Id="4508432c-f5aa-4a23-ade9-edbd693d2287" />
   <Project Path="../Tests/Tests.csproj" />
