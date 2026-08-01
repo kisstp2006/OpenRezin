@@ -17,3 +17,5 @@ Dual-licensed, pick whichever you prefer:
 
 - [MIT License](LICENSE.txt) — if you want to keep the copyright notice
 - MIT No Attribution (MIT-0) — same permissions, no attribution required
+
+Third-party dependencies and their own licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
