@@ -1,26 +1,9 @@
 ﻿using Core.System;
-using Foundation.Logger;
-using Foundation.Time;
+using Engine.Application;
+using Rendering;
 
 var window = new SilkWindow("Rezin Engine", 800, 600);
-var clock = new Clock();
+var renderer = new NullRenderer(); // while we dont have a renderer, we can use a null renderer to avoid null reference exceptions
 
-
-window.Events.Subscribe<WindowResizedEvent>(e =>
-{
-    Log.Info($"Resized to {e.Width}x{e.Height}");
-});
-
-while (!window.ShouldClose)
-{
-    
-    window.ProcessEvents();
-    clock.Tick();
-    
-    //Later here comes the render loop and logic update
-
-    Log.Info($"Frame Time: {clock.DeltaTime} seconds, FPS: {clock.GetFPS():F2}");
-
-    // Limit the frame rate to 60 FPS
-    clock.LimitFrameRate();
-}
+var app = new GameApplication(window, renderer);
+app.Run();
