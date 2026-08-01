@@ -43,6 +43,7 @@ namespace Rendering
         private RenderPass renderPass;
 
         private PipelineLayout pipelineLayout;
+        private Pipeline pipeline;
 
         /// <summary>
         /// // Represents the indices of the queue families that are required for rendering.
@@ -71,6 +72,7 @@ namespace Rendering
             CreateSwapchain(window);
             CreateImageViews();
             CreateRenderPass();
+            CreateGraphicsPipeline();
         }
 
         private void CreateInstance(SilkWindow window)
@@ -555,6 +557,7 @@ namespace Rendering
                 PrimitiveRestartEnable = false
             };
 
+            // Maps normalized device coords to the full swapchain image in pixels.
             var viewport = new Viewport
             {
                 X = 0,
@@ -565,6 +568,7 @@ namespace Rendering
                 MaxDepth = 1
             };
 
+            // No extra clipping beyond the viewport - scissor covers the whole framebuffer.
             var scissor = new Rect2D
             {
                 Offset = new Offset2D(0, 0),
@@ -580,6 +584,7 @@ namespace Rendering
                 PScissors = &scissor
             };
 
+            // Fill (solid) triangles, cull back faces, clockwise winding counts as "front".
             var rasterizer = new PipelineRasterizationStateCreateInfo
             {
                 SType = StructureType.PipelineRasterizationStateCreateInfo,
@@ -592,6 +597,7 @@ namespace Rendering
                 DepthBiasEnable = false
             };
 
+            // No MSAA for now - one sample per pixel.
             var multisampling = new PipelineMultisampleStateCreateInfo
             {
                 SType = StructureType.PipelineMultisampleStateCreateInfo,
@@ -599,6 +605,7 @@ namespace Rendering
                 RasterizationSamples = SampleCountFlags.Count1Bit
             };
 
+            // Write all RGBA channels, no blending - new fragments overwrite what's there.
             var colorBlendAttachment = new PipelineColorBlendAttachmentState
             {
                 ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit
@@ -606,6 +613,7 @@ namespace Rendering
                 BlendEnable = false
             };
 
+            // Wraps the per-attachment blend state above (we only have 1 color attachment).
             var colorBlending = new PipelineColorBlendStateCreateInfo
             {
                 SType = StructureType.PipelineColorBlendStateCreateInfo,
@@ -614,6 +622,7 @@ namespace Rendering
                 PAttachments = &colorBlendAttachment
             };
 
+            // No descriptor sets or push constants yet - the shader has no external inputs.
             var pipelineLayoutInfo = new PipelineLayoutCreateInfo
             {
                 SType = StructureType.PipelineLayoutCreateInfo,
@@ -626,6 +635,38 @@ namespace Rendering
                 Log.Error("Failed to create pipeline layout.");
                 throw new Exception("Failed to create pipeline layout.");
             }
+
+            // Ties every state object above, plus the layout and render pass, into one pipeline.
+            fixed (PipelineShaderStageCreateInfo* shaderStagesPtr = shaderStages)
+            {
+                var pipelineInfo = new GraphicsPipelineCreateInfo
+                {
+                    SType = StructureType.GraphicsPipelineCreateInfo,
+                    StageCount = 2,
+                    PStages = shaderStagesPtr,
+                    PVertexInputState = &vertexInputInfo,
+                    PInputAssemblyState = &inputAssembly,
+                    PViewportState = &viewportState,
+                    PRasterizationState = &rasterizer,
+                    PMultisampleState = &multisampling,
+                    PColorBlendState = &colorBlending,
+                    Layout = pipelineLayout,
+                    RenderPass = renderPass,
+                    Subpass = 0,
+                    BasePipelineHandle = default
+                };
+
+                // Can create multiple pipelines in one call (createInfoCount) - we only need 1.
+                if (vk.CreateGraphicsPipelines(device, default, 1, in pipelineInfo, null, out pipeline) != Result.Success)
+                {
+                    Log.Error("Failed to create graphics pipeline.");
+                    throw new Exception("Failed to create graphics pipeline.");
+                }
+            }
+
+            // The entry-point name strings were only needed for pipeline creation.
+            Marshal.FreeHGlobal((IntPtr)vertShaderStageInfo.PName);
+            Marshal.FreeHGlobal((IntPtr)fragShaderStageInfo.PName);
 
             //We can destroy the shader modules after creating the pipeline, as they are no longer needed.
             vk.DestroyShaderModule(device, vertexShaderModule, null);
