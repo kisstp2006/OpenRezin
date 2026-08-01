@@ -1,5 +1,8 @@
 ﻿using ECS.World;
 using Foundation.Types;
+using Foundation.Containers;
+using Foundation.Math;
+using System.Numerics;
 using TinyTui;
 
 var world = new World();
@@ -39,6 +42,20 @@ Check("RemoveComponent", () =>
 {
     world.RemoveComponent<int>(entity);
     return !world.Has<int>(entity);
+});
+
+Check("QuadTree Insert/Query", () =>
+{
+    var root = new QuadTreeNode<int>(new AABB(new Vector3(-100, -100, -100), new Vector3(100, 100, 100)));
+
+    root.Insert(1, new AABB(new Vector3(0, 0, 0), new Vector3(1, 1, 1)));
+    root.Insert(2, new AABB(new Vector3(50, 0, 50), new Vector3(51, 1, 51)));
+    root.Insert(3, new AABB(new Vector3(-50, 0, -50), new Vector3(-49, 1, -49)));
+
+    var queryResults = new List<int>();
+    root.Query(new AABB(new Vector3(-2, -2, -2), new Vector3(2, 2, 2)), queryResults);
+
+    return queryResults.Count == 1 && queryResults[0] == 1;
 });
 
 using var app = new TuiApplication { ExitOnEscape = true };
