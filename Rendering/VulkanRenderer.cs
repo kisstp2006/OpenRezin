@@ -1,15 +1,16 @@
 ﻿// Copyright (c) 2026 Kiss Tibor Péter
 // Dual-licensed under the MIT License and MIT No Attribution (MIT-0) — see LICENSE.txt
 
-using Foundation.Math;
-using Silk.NET.Core;
-using Silk.NET.Vulkan;
-using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
-using System.Text;
+using Core.System;
 using Foundation;
 using Foundation.Logger;
+using Foundation.Math;
+using Silk.NET.Core;
+using Silk.NET.SDL;
+using Silk.NET.Vulkan;
+using Silk.NET.Vulkan.Extensions.KHR;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Rendering
 {
@@ -21,6 +22,9 @@ namespace Rendering
 
         private Device device;
         private Queue graphicsQueue;
+
+        private KhrSurface? khrSurface;
+        private SurfaceKHR surface;
 
         /// <summary>
         /// // Represents the indices of the queue families that are required for rendering.
@@ -35,15 +39,18 @@ namespace Rendering
             public bool IsComplete() => GraphicsFamily.HasValue;
         }
 
-        public VulkanRenderer()
+        public VulkanRenderer(SilkWindow window)
         {
             vk = Vk.GetApi();
-            CreateInstance();
+            CreateInstance(window);
             Log.Info("VulkanRenderer initialized successfully.");
             SelectPhysicalDevice();
+            CreateLogicalDevice();
+            CreateSurface(window);
         }
 
-        private void CreateInstance()
+
+        private void CreateInstance(SilkWindow window)
         {
             var appInfo = new ApplicationInfo
             {
@@ -55,11 +62,14 @@ namespace Rendering
                 ApiVersion = Vk.Version13
             };
 
+            var reqiredExtensions = window.NativeWindow.VkSurface!.GetRequiredExtensions(out uint extensionCount);
+
             var createInfo = new InstanceCreateInfo
             {
                 SType = StructureType.InstanceCreateInfo,
                 PApplicationInfo = &appInfo,
-                EnabledExtensionCount = 0,
+                EnabledExtensionCount = extensionCount,
+                PpEnabledExtensionNames = reqiredExtensions,
                 EnabledLayerCount = 0
             };
 
@@ -201,7 +211,32 @@ namespace Rendering
             // Fetch the usable queue handle for the family we picked above.
             vk.GetDeviceQueue(device, indices.GraphicsFamily!.Value, 0, out graphicsQueue);
         }
-        public void Clear(Color color)
+
+        private void CreateSurface(SilkWindow window)
+        {
+            if (window == null)
+            {
+                Log.Error("Failed to create Vulkan surface: Window is null.");
+                throw new ArgumentNullException(nameof(window));
+            }
+
+            if (!vk.TryGetInstanceExtension<KhrSurface>(instance, out khrSurface))
+            {
+                Log.Error("KHR_surface extension not found.");
+                throw new NotSupportedException("KHR_surface extension not found.");
+            }
+
+            try
+            {
+                surface = window.NativeWindow.VkSurface!.Create<AllocationCallbacks>(instance.ToHandle(), null).ToSurface();
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to create Vulkan surface: {ex.Message}");
+                throw new Exception("Failed to create Vulkan surface.", ex);
+            }
+        }
+        public void Clear(Foundation.Math.Color color)
         {
             
         }

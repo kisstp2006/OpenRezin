@@ -1,4 +1,5 @@
 ﻿using Foundation.Communication;
+using Foundation;
 using Silk.NET.Maths;
 using Silk.NET.SDL;
 using Silk.NET.Windowing;
@@ -11,9 +12,9 @@ namespace Core.System
        
         private readonly SilkIWindow window;
 
-        public SilkWindow(string title, int width, int height)
+        public SilkWindow(string title, int width, int height, RendererBackend backend = RendererBackend.Vulkan)
         {
-            var options = WindowOptions.Default;
+            var options = backend == RendererBackend.Vulkan ? WindowOptions.DefaultVulkan : WindowOptions.Default;
             options.Title = title;
             options.Size = new Vector2D<int>(width, height);
 
@@ -35,6 +36,7 @@ namespace Core.System
         public int Height => window.Size.Y;
         public bool IsVisible => window.IsVisible;
         public bool ShouldClose => window.IsClosing;
+        public SilkIWindow NativeWindow => window;
 
         private readonly EventDispatcher events = new EventDispatcher();
         public EventDispatcher Events => events;
