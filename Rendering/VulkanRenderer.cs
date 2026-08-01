@@ -73,6 +73,7 @@ namespace Rendering
 
         private void CreateInstance(SilkWindow window)
         {
+            ArgumentNullException.ThrowIfNull(window);
             var appInfo = new ApplicationInfo
             {
                 SType = StructureType.ApplicationInfo,
