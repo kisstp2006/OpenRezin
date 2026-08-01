@@ -16,9 +16,11 @@ namespace Rendering
         private readonly SilkWindow window;
         private readonly GL gl;
 
-        OpenGLRenderer(SilkWindow window)
+        public OpenGLRenderer(SilkWindow window)
         {
             ArgumentNullException.ThrowIfNull(window);
+            this.window = window;
+            this.gl = GL.GetApi(window.NativeWindow);
         }
         public void Clear(Color color)
         {
