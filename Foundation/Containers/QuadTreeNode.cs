@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 Kiss Tibor Péter
 // Dual-licensed under the MIT License and MIT No Attribution (MIT-0) — see LICENSE.txt
 
+using Foundation.Logger;
 using Foundation.Math;
 using System;
 using System.Numerics;
@@ -63,7 +64,10 @@ namespace Foundation.Containers
         public void Insert(T item, AABB itemBounds)
         {
             if (!Bounds.Intersects(itemBounds))
+            {
+                Log.Error("Item bounds do not intersect with node bounds.");
                 throw new ArgumentException("Item bounds do not intersect with node bounds.");
+            }
             if (IsLeaf && Items.Count < MaxItemsBeforeSplit)
             {
                 Items.Add((item, itemBounds));

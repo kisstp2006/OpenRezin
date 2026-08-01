@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 Kiss Tibor Péter
 // Dual-licensed under the MIT License and MIT No Attribution (MIT-0) — see LICENSE.txt
 
+using Foundation.Logger;
 using Foundation.Math;
 using System;
 using System.Collections.Generic;
@@ -10,6 +11,10 @@ namespace Rendering
 {
     public class NullRenderer : IRenderer
     {
+        public NullRenderer()
+        {
+           Log.Info("NullRenderer initialized successfully.");
+        }
         public void Clear(Color color)
         {
             

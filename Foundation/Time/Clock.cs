@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 Kiss Tibor Péter
 // Dual-licensed under the MIT License and MIT No Attribution (MIT-0) — see LICENSE.txt
 
+using Foundation.Logger;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,6 +13,7 @@ namespace Foundation.Time
     {
         private readonly Stopwatch stopwatch = Stopwatch.StartNew();
         private double lastElapsedSeconds = 0.0;
+        
 
         public float TargetFrameTime { get; set; } = 1.0f / 60.0f; // Default to 60 FPS
 
@@ -52,7 +54,10 @@ namespace Foundation.Time
         public void SetTargetFPS(float fps)
         {
             if (fps <= 0)
+            {
+                Log.Error($"Invalid FPS value: {fps}. FPS must be greater than zero.");
                 throw new ArgumentOutOfRangeException(nameof(fps), "FPS must be greater than zero.");
+            }
             TargetFrameTime = 1.0f / fps;
         }
 

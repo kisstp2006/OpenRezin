@@ -2,6 +2,7 @@
 // Dual-licensed under the MIT License and MIT No Attribution (MIT-0) — see LICENSE.txt
 
 using Core.System;
+using Foundation.Logger;
 using Foundation.Math;
 using Foundation.Time;
 using Rendering;
@@ -26,6 +27,8 @@ namespace Engine.Application
             {
                 renderer.Resize(e.Width, e.Height);
             });
+
+            Log.Info("Apllication initialized successfully.");
         }
 
         public void Run()
