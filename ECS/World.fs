@@ -82,6 +82,22 @@ type World() =
             let store = componentStores.[typeof<'T>] :?> ResizeArray<'T>
             Some store.[entity.Index]
 
+    // C#-friendly, allocation-free component lookup for per-frame systems.
+    member this.TryGetComponent<'T>(entity: Entity, [<Out>] value: byref<'T>) : bool =
+        value <- Unchecked.defaultof<'T>
+
+        match entityMasks.TryGet(entity) with
+        | true, mask when mask.IsBitSet(componentTypes.GetIndex<'T>()) ->
+            let store =
+                componentStores.[typeof<'T>]
+                :?> ResizeArray<'T>
+
+            value <- store.[entity.Index]
+            true
+
+        | _ ->
+            false
+
     member this.RemoveComponent<'T>(entity: Entity) =
         if this.Has<'T>(entity) then
             match entityMasks.TryGet(entity) with
