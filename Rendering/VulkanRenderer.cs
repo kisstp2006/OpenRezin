@@ -7,6 +7,7 @@ using Foundation.Logger;
 using Foundation.Math;
 using Rendering.Shader;
 using Silk.NET.Core;
+using Silk.NET.Core.Native;
 using Silk.NET.SDL;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
@@ -88,6 +89,13 @@ namespace Rendering
             public bool IsComplete() => GraphicsFamily.HasValue && PresentFamily.HasValue;
 
         
+        }
+
+        private struct SwapchainSupportDetails
+        {
+            public SurfaceCapabilitiesKHR Capabilities;
+            public SurfaceFormatKHR[] Formats;
+            public PresentModeKHR[] PresentModes;
         }
 
         public VulkanRenderer(SilkWindow window)
@@ -253,7 +261,182 @@ namespace Rendering
         private bool IsDeviceSuitable(PhysicalDevice device, SurfaceKHR surface)
         {
             var indices = FindQueueFamilies(device, surface);
-            return indices.IsComplete();
+
+            if (!indices.IsComplete())
+                return false;
+
+            if (!CheckDeviceExtensionSupport(device))
+                return false;
+
+            var swapchainSupport =
+                QuerySwapchainSupport(device);
+
+            return swapchainSupport.Formats.Length > 0 &&
+                   swapchainSupport.PresentModes.Length > 0;
+        }
+
+        private bool CheckDeviceExtensionSupport(PhysicalDevice device)
+        {
+            uint extensionCount = 0;
+            ExtensionProperties[] availableExtensions;
+            const string requiredExtensionName = "VK_KHR_swapchain";
+
+            var countResult = vk.EnumerateDeviceExtensionProperties(
+                device,
+                (byte*)null,
+                ref extensionCount,
+                null);
+
+            if (countResult != Result.Success)
+            {
+                Log.Error("Failed to count device extensions.");
+                return false;
+            }
+
+
+            if (extensionCount > 0) 
+            {
+                availableExtensions =
+                    new ExtensionProperties[extensionCount];
+
+                fixed (ExtensionProperties* extensionsPtr = availableExtensions)
+                {
+                    var result = vk.EnumerateDeviceExtensionProperties(
+                        device,
+                        (byte*)null,
+                        ref extensionCount,
+                        extensionsPtr);
+
+                    if (result != Result.Success)
+                    {
+                        Log.Error("Failed to enumerate device extensions.");
+                        return false;
+                    }
+                }
+
+
+                foreach (var extension in availableExtensions)
+                {
+                    string extensionName =
+                        Marshal.PtrToStringAnsi(
+                            (IntPtr)extension.ExtensionName)
+                        ?? string.Empty;
+
+                    if (extensionName == requiredExtensionName)
+                        return true;
+                }
+                return false;
+            }
+            {
+                Log.Error(requiredExtensionName + " extension not found on device.");
+                return false;
+            }
+
+        }
+
+        private SwapchainSupportDetails QuerySwapchainSupport(
+    PhysicalDevice device)
+        {
+            var details = new SwapchainSupportDetails
+            {
+                Formats = Array.Empty<SurfaceFormatKHR>(),
+                PresentModes = Array.Empty<PresentModeKHR>()
+            };
+
+            // Surface capabilities
+            Result capabilitiesResult =
+                khrSurface!.GetPhysicalDeviceSurfaceCapabilities(
+                    device,
+                    surface,
+                    out details.Capabilities);
+
+            if (capabilitiesResult != Result.Success)
+            {
+                Log.Error("Failed to query surface capabilities.");
+                return details;
+            }
+
+            // Surface formats
+            uint formatCount = 0;
+
+            Result formatCountResult =
+                khrSurface.GetPhysicalDeviceSurfaceFormats(
+                    device,
+                    surface,
+                    ref formatCount,
+                    null);
+
+            if (formatCountResult != Result.Success)
+            {
+                Log.Error("Failed to count surface formats.");
+                return details;
+            }
+
+            if (formatCount > 0)
+            {
+                details.Formats = new SurfaceFormatKHR[formatCount];
+
+                fixed (SurfaceFormatKHR* formatsPtr = details.Formats)
+                {
+                    Result formatsResult =
+                        khrSurface.GetPhysicalDeviceSurfaceFormats(
+                            device,
+                            surface,
+                            ref formatCount,
+                            formatsPtr);
+
+                    if (formatsResult != Result.Success)
+                    {
+                        Log.Error("Failed to query surface formats.");
+                        details.Formats = Array.Empty<SurfaceFormatKHR>();
+                        return details;
+                    }
+                }
+            }
+
+            // Present modes
+            uint presentModeCount = 0;
+
+            Result presentModeCountResult =
+                khrSurface.GetPhysicalDeviceSurfacePresentModes(
+                    device,
+                    surface,
+                    ref presentModeCount,
+                    null);
+
+            if (presentModeCountResult != Result.Success)
+            {
+                Log.Error("Failed to count present modes.");
+                return details;
+            }
+
+            if (presentModeCount > 0)
+            {
+                details.PresentModes =
+                    new PresentModeKHR[presentModeCount];
+
+                fixed (PresentModeKHR* presentModesPtr =
+                    details.PresentModes)
+                {
+                    Result presentModesResult =
+                        khrSurface.GetPhysicalDeviceSurfacePresentModes(
+                            device,
+                            surface,
+                            ref presentModeCount,
+                            presentModesPtr);
+
+                    if (presentModesResult != Result.Success)
+                    {
+                        Log.Error("Failed to query present modes.");
+                        details.PresentModes =
+                            Array.Empty<PresentModeKHR>();
+
+                        return details;
+                    }
+                }
+            }
+
+            return details;
         }
 
         private void CreateLogicalDevice()
