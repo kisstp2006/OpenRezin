@@ -1036,10 +1036,14 @@ namespace Rendering
         public void Dispose()
         {
             vk.DeviceWaitIdle(device);
-            vk.DestroyInstance(instance, null);
-            vk.DestroyBuffer(device, vertexBuffer, null);
+            vk.DestroySemaphore(device, renderFinishedSemaphore, null);
+            vk.DestroyFence(device, inFlightFence, null);
             vk.DestroyCommandPool(device, commandPool, null);
+            vk.DestroyBuffer(device, vertexBuffer, null);
+            CleanupSwapchain();
+            vk.DestroyRenderPass(device, renderPass, null);
             vk.DestroyDevice(device, null);
+            vk.DestroyInstance(instance, null);
             vk.FreeMemory(device, vertexBufferMemory, null);
         }
     }
