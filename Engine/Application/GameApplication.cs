@@ -46,6 +46,16 @@ namespace Engine.Application
                 clock.LimitFrameRate();
             }
         }
+        public void Shutdown()
+        {
+            if( renderer != null && renderer is IDisposable disposableRenderer)
+            {
+                disposableRenderer.Dispose(); //We dont need to dispose the nullrenderer, but we need to dispose the real ones
+            }
+            window.Close();
+
+            Log.Info("Application shutdown successfully.");
+        }
 
         public static GameApplication Create(string title, int width, int height, RendererBackend backend)
         {

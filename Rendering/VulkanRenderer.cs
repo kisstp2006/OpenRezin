@@ -5,19 +5,21 @@ using Core.System;
 using Foundation;
 using Foundation.Logger;
 using Foundation.Math;
+using Rendering.Shader;
 using Silk.NET.Core;
 using Silk.NET.SDL;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
-
+using Buffer = Silk.NET.Vulkan.Buffer;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 namespace Rendering
 {
-    public unsafe class VulkanRenderer : IRenderer
+    public unsafe class VulkanRenderer : IRenderer , IDisposable
     {
         private readonly Vk vk;
         private Instance instance;
@@ -61,6 +63,17 @@ namespace Rendering
         private Foundation.Math.Color clearColor;
         private SilkWindow window;
 
+        private Buffer vertexBuffer;
+        private DeviceMemory vertexBufferMemory;
+
+        // test
+        static readonly Vertex[] vertices = new Vertex[]
+        {
+            new Vertex { Position = new Vector2(0.0f, -0.5f), Color = new Vector3(1, 0, 0) },
+            new Vertex { Position = new Vector2(0.5f,  0.5f), Color = new Vector3(0, 1, 0) },
+            new Vertex { Position = new Vector2(-0.5f, 0.5f), Color = new Vector3(0, 0, 1) },
+        };
+
         /// <summary>
         /// // Represents the indices of the queue families that are required for rendering.
         /// </summary>
@@ -92,6 +105,7 @@ namespace Rendering
             CreateFrameBuffer();
             CreateCommandPool();
             CreateCommandBuffers();
+            CreateVertexBuffer();
             CreateSyncObjects();
 
             this.window = window;
@@ -536,8 +550,14 @@ namespace Rendering
         private void CreateGraphicsPipeline()
         {
             // Raw SPIR-V bytecode compiled ahead of time from the GLSL sources via glslc.
-            byte[] vertShaderCode = File.ReadAllBytes("Shaders/triangle.vert.spv");
-            byte[] fragShaderCode = File.ReadAllBytes("Shaders/triangle.frag.spv");
+            byte[] vertShaderCode = ShaderCompiler.CompileHlslToSpirv(
+                    "Shaders/triangle.hlsl", 
+                    "VSMain", 
+                    "vs_6_0");
+            byte[] fragShaderCode = ShaderCompiler.CompileHlslToSpirv(
+                    "Shaders/triangle.hlsl", 
+                    "PSMain", 
+                    "ps_6_0");
 
             ShaderModule vertexShaderModule = CreateShaderModule(vertShaderCode);
             ShaderModule fragmentShaderModule = CreateShaderModule(fragShaderCode);
@@ -561,14 +581,38 @@ namespace Rendering
 
             PipelineShaderStageCreateInfo[] shaderStages = new PipelineShaderStageCreateInfo[] { vertShaderStageInfo, fragShaderStageInfo };
 
-            // No vertex buffer yet - the triangle's positions/colors are hardcoded in the shader.
+            var bindingDescription = new VertexInputBindingDescription
+            {
+                Binding = 0,
+                Stride = (uint)sizeof(Vertex),
+                InputRate = VertexInputRate.Vertex
+            };
+
+            var attributeDescriptions = stackalloc VertexInputAttributeDescription[2];
+
+            attributeDescriptions[0] = new VertexInputAttributeDescription
+            {
+                Binding = 0,
+                Location = 0,                       // matches Location 0 (POSITION) in the shader
+                Format = Format.R32G32Sfloat,       // 2 floats
+                Offset = 0
+            };
+
+            attributeDescriptions[1] = new VertexInputAttributeDescription
+            {
+                Binding = 0,
+                Location = 1,                       // matches Location 1 (COLOR0) in the shader
+                Format = Format.R32G32B32Sfloat,    // 3 floats
+                Offset = (uint)sizeof(Vector2)      // Color starts after Position
+            };
+
             var vertexInputInfo = new PipelineVertexInputStateCreateInfo
             {
                 SType = StructureType.PipelineVertexInputStateCreateInfo,
-                VertexBindingDescriptionCount = 0,
-                PVertexBindingDescriptions = null,
-                VertexAttributeDescriptionCount = 0,
-                PVertexAttributeDescriptions = null
+                VertexBindingDescriptionCount = 1,
+                PVertexBindingDescriptions = &bindingDescription,
+                VertexAttributeDescriptionCount = 2,
+                PVertexAttributeDescriptions = attributeDescriptions
             };
 
             // Every 3 vertices form one independent triangle (like GL_TRIANGLES in OpenGL).
@@ -722,6 +766,51 @@ namespace Rendering
             }
         }
 
+        private void CreateVertexBuffer()
+        {
+            ulong bufferSize = (ulong)(sizeof(Vertex) * vertices.Length);
+
+            var bufferInfo = new BufferCreateInfo
+            {
+                SType = StructureType.BufferCreateInfo,
+                Size = bufferSize,
+                Usage = BufferUsageFlags.VertexBufferBit,
+                SharingMode = SharingMode.Exclusive
+            };
+
+            if (vk.CreateBuffer(device, in bufferInfo, null, out vertexBuffer) != Result.Success)
+            {
+                Log.Error("Failed to create vertex buffer.");
+                throw new Exception("Failed to create vertex buffer.");
+            }
+
+            // The buffer is just a handle - it has no memory behind it yet.
+            vk.GetBufferMemoryRequirements(device, vertexBuffer, out MemoryRequirements memRequirements);
+
+            var allocInfo = new MemoryAllocateInfo
+            {
+                SType = StructureType.MemoryAllocateInfo,
+                AllocationSize = memRequirements.Size,
+                MemoryTypeIndex = FindMemoryType(
+                    memRequirements.MemoryTypeBits,
+                    MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit)
+            };
+
+            if (vk.AllocateMemory(device, in allocInfo, null, out vertexBufferMemory) != Result.Success)
+            {
+                Log.Error("Failed to allocate vertex buffer memory.");
+                throw new Exception("Failed to allocate vertex buffer memory.");
+            }
+
+            vk.BindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+            // Map the GPU memory into our address space, copy, then unmap.
+            void* data;
+            vk.MapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
+            vertices.AsSpan().CopyTo(new Span<Vertex>(data, vertices.Length));
+            vk.UnmapMemory(device, vertexBufferMemory);
+        }
+
         private void CreateCommandPool()
         {
             var indices = FindQueueFamilies(physicalDevice, surface);
@@ -819,7 +908,10 @@ namespace Rendering
 
             vk.CmdBeginRenderPass(commandBuffer, in renderPassInfo, SubpassContents.Inline);
             vk.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, pipeline);
-            vk.CmdDraw(commandBuffer, 3, 1, 0, 0);
+            var vertexBuffers = stackalloc[] { vertexBuffer };
+            var offsets = stackalloc ulong[] { 0 };
+            vk.CmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+            vk.CmdDraw(commandBuffer, (uint)vertices.Length, 1, 0, 0);
             vk.CmdEndRenderPass(commandBuffer);
 
             if (vk.EndCommandBuffer(commandBuffer) != Result.Success)
@@ -860,6 +952,23 @@ namespace Rendering
             CreateFrameBuffer();
         }
 
+        private uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
+        {
+            vk.GetPhysicalDeviceMemoryProperties(physicalDevice, out PhysicalDeviceMemoryProperties memProperties);
+
+            for (int i = 0; i < memProperties.MemoryTypeCount; i++)
+            {
+                // typeFilter is a bitmask: bit i set means memory type i is allowed for this buffer.
+                bool allowedByBuffer = (typeFilter & (1 << i)) != 0;
+                bool hasAllProperties = (memProperties.MemoryTypes[i].PropertyFlags & properties) == properties;
+
+                if (allowedByBuffer && hasAllProperties)
+                    return (uint)i;
+            }
+
+            Log.Error("Failed to find a suitable memory type.");
+            throw new Exception("Failed to find a suitable memory type.");
+        }
 
         private void DrawFrame()
         {
@@ -922,6 +1031,13 @@ namespace Rendering
         public void Resize(int width, int height)
         {
             RecreateSwapchain();
+        }
+
+        public void Dispose()
+        {
+            vk.DeviceWaitIdle(device);
+            vk.DestroyBuffer(device, vertexBuffer, null);
+            vk.FreeMemory(device, vertexBufferMemory, null);
         }
     }
 }

@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\Rendering\Shaders\*.spv;..\Rendering\Shaders\*.glsl">
+    <None Include="..\Rendering\Shaders\*.hlsl">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Shaders\%(Filename)%(Extension)</Link>
     </None>
