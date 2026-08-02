@@ -77,6 +77,8 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
 
         gl = GL.GetApi(window.NativeWindow);
 
+        gl.Enable(EnableCap.FramebufferSrgb);
+
         shaderProgram = CreateShaderProgram(
             VertexShaderSource,
             FragmentShaderSource);
