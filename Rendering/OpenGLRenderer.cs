@@ -12,42 +12,7 @@ namespace Rendering;
 
 public sealed class OpenGLRenderer : IRenderer, IDisposable
 {
-    private const string VertexShaderSource = """
-        #version 330 core
-
-        out vec3 fragColor;
-
-        // Same hardcoded triangle as in the Vulkan shader - keeps both backends comparable.
-        const vec2 positions[3] = vec2[3](
-            vec2( 0.0,  0.5),
-            vec2( 0.5,  -0.5),
-            vec2(-0.5,  -0.5)
-        );
-
-        const vec3 colors[3] = vec3[3](
-            vec3(1.0, 0.0, 0.0),
-            vec3(0.0, 1.0, 0.0),
-            vec3(0.0, 0.0, 1.0)
-        );
-
-        void main()
-        {
-            gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
-            fragColor = colors[gl_VertexID];
-        }
-        """;
-
-    private const string FragmentShaderSource = """
-        #version 330 core
-
-        in vec3 fragColor;
-        out vec4 outColor;
-
-        void main()
-        {
-            outColor = vec4(fragColor, 1.0);
-        }
-        """;
+    
 
     private readonly SilkWindow window;
     private readonly GL gl;
@@ -79,9 +44,10 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
 
         gl.Enable(EnableCap.FramebufferSrgb);
 
-        shaderProgram = CreateShaderProgram(
-            VertexShaderSource,
-            FragmentShaderSource);
+        string vertexSource = File.ReadAllText("Shaders/triangle.vert.glsl");
+        string fragmentSource = File.ReadAllText("Shaders/triangle.frag.glsl");
+
+        shaderProgram = CreateShaderProgram(vertexSource, fragmentSource);
 
         // Core profile requires a bound VAO for any draw call, even though we have
         // no vertex buffers - the shader generates positions from gl_VertexID.

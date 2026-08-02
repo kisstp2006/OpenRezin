@@ -542,13 +542,13 @@ namespace Rendering
             ShaderModule vertexShaderModule = CreateShaderModule(vertShaderCode);
             ShaderModule fragmentShaderModule = CreateShaderModule(fragShaderCode);
 
-            // Binds each shader module to its pipeline stage; "main" is the GLSL entry point.
+            // Binds each shader module to its pipeline stage; "VSMain"/"PSMain" is the GLSL entry point.
             var vertShaderStageInfo = new PipelineShaderStageCreateInfo
             {
                 SType = StructureType.PipelineShaderStageCreateInfo,
                 Stage = ShaderStageFlags.VertexBit,
                 Module = vertexShaderModule,
-                PName = (byte*)Marshal.StringToHGlobalAnsi("main")
+                PName = (byte*)Marshal.StringToHGlobalAnsi("VSMain")
             };
 
             var fragShaderStageInfo = new PipelineShaderStageCreateInfo
@@ -556,7 +556,7 @@ namespace Rendering
                 SType = StructureType.PipelineShaderStageCreateInfo,
                 Stage = ShaderStageFlags.FragmentBit,
                 Module = fragmentShaderModule,
-                PName = (byte*)Marshal.StringToHGlobalAnsi("main")
+                PName = (byte*)Marshal.StringToHGlobalAnsi("PSMain")
             };
 
             PipelineShaderStageCreateInfo[] shaderStages = new PipelineShaderStageCreateInfo[] { vertShaderStageInfo, fragShaderStageInfo };
