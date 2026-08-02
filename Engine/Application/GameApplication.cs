@@ -45,6 +45,7 @@ namespace Engine.Application
 
                 clock.LimitFrameRate();
             }
+            Shutdown();
         }
         public void Shutdown()
         {
