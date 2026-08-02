@@ -60,12 +60,12 @@ namespace Engine.Application
                 renderer = new NullRenderer();
                 break;
                 case RendererBackend.Vulkan:
-                var silkWindow = new SilkWindow(title, width, height, backend);
+                var silkWindow = new SilkWindow(title+ " (Vulkan)", width, height, backend);
                 window = silkWindow;
                 renderer = new VulkanRenderer(silkWindow);
                 break;
                 case RendererBackend.OpenGL:
-                var silkWindowGL = new SilkWindow(title, width, height, backend);
+                var silkWindowGL = new SilkWindow(title+ " (OpenGL)", width, height, backend);
                 window = silkWindowGL;
                 renderer = new OpenGLRenderer(silkWindowGL);
                 break;

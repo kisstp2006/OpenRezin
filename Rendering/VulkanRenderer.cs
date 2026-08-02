@@ -13,6 +13,8 @@ using Silk.NET.Windowing;
 using System.Runtime.InteropServices;
 using System.Text;
 
+using Semaphore = Silk.NET.Vulkan.Semaphore;
+
 namespace Rendering
 {
     public unsafe class VulkanRenderer : IRenderer
@@ -45,6 +47,20 @@ namespace Rendering
         private PipelineLayout pipelineLayout;
         private Pipeline pipeline;
 
+
+        private Framebuffer[] swapchainFramebuffers;
+
+        private CommandPool commandPool;
+
+        private CommandBuffer[] commandBuffers;
+
+        private Semaphore imageAvailableSemaphore;
+        private Semaphore renderFinishedSemaphore;
+        private Fence inFlightFence;
+
+        private Foundation.Math.Color clearColor;
+        private SilkWindow window;
+
         /// <summary>
         /// // Represents the indices of the queue families that are required for rendering.
         /// </summary>
@@ -73,6 +89,12 @@ namespace Rendering
             CreateImageViews();
             CreateRenderPass();
             CreateGraphicsPipeline();
+            CreateFrameBuffer();
+            CreateCommandPool();
+            CreateCommandBuffers();
+            CreateSyncObjects();
+
+            this.window = window;
         }
 
         private void CreateInstance(SilkWindow window)
@@ -673,19 +695,233 @@ namespace Rendering
             vk.DestroyShaderModule(device, fragmentShaderModule, null);
         }
 
+        private void CreateFrameBuffer()
+        {
+            swapchainFramebuffers = new Framebuffer[swapchainImageViews.Length];
+
+            for(int i = 0; i < swapchainImageViews.Length; i++)
+            {
+                var attachment = swapchainImageViews[i];
+
+                var framebufferInfo = new FramebufferCreateInfo
+                {
+                    SType = StructureType.FramebufferCreateInfo,
+                    RenderPass = renderPass,
+                    AttachmentCount = 1,
+                    PAttachments = &attachment,
+                    Width = swapchainExtent.Width,
+                    Height = swapchainExtent.Height,
+                    Layers = 1
+                };
+
+                if (vk.CreateFramebuffer(device, in framebufferInfo, null, out swapchainFramebuffers[i]) != Result.Success)
+                {
+                    Log.Error("Failed to create framebuffer.");
+                    throw new Exception("Failed to create framebuffer.");
+                }
+            }
+        }
+
+        private void CreateCommandPool()
+        {
+            var indices = FindQueueFamilies(physicalDevice, surface);
+            if (!indices.IsComplete())
+            {
+                Log.Error("Selected GPU has no graphics-capable queue family.");
+                throw new Exception("Selected GPU has no graphics-capable queue family.");
+            }
+            var poolInfo = new CommandPoolCreateInfo
+            {
+                SType = StructureType.CommandPoolCreateInfo,
+                QueueFamilyIndex = indices.GraphicsFamily!.Value,
+                Flags = CommandPoolCreateFlags.ResetCommandBufferBit
+            };
+            if (vk.CreateCommandPool(device, in poolInfo, null, out commandPool) != Result.Success)
+            {
+                Log.Error("Failed to create command pool.");
+                throw new Exception("Failed to create command pool.");
+            }
+        }
+
+        private void CreateCommandBuffers()
+        {
+            commandBuffers = new CommandBuffer[swapchainFramebuffers.Length];
+            var allocInfo = new CommandBufferAllocateInfo
+            {
+                SType = StructureType.CommandBufferAllocateInfo,
+                CommandPool = commandPool,
+                Level = CommandBufferLevel.Primary,
+                CommandBufferCount = (uint)commandBuffers.Length
+            };
+            fixed (CommandBuffer* commandBuffersPtr = commandBuffers)
+            {
+                if (vk.AllocateCommandBuffers(device, in allocInfo, commandBuffersPtr) != Result.Success)
+                {
+                    Log.Error("Failed to allocate command buffers.");
+                    throw new Exception("Failed to allocate command buffers.");
+                }
+            }
+        }
+
+        private void CreateSyncObjects()
+        {
+            var semaphoreInfo = new SemaphoreCreateInfo
+            {
+                SType = StructureType.SemaphoreCreateInfo
+            };
+
+            if (vk.CreateSemaphore(device, in semaphoreInfo, null, out imageAvailableSemaphore) != Result.Success)
+            {
+                Log.Error("Failed to create image available semaphore.");
+                throw new Exception("Failed to create image available semaphore.");
+            }
+
+            if (vk.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphore) != Result.Success)
+            {
+                Log.Error("Failed to create render finished semaphore.");
+                throw new Exception("Failed to create render finished semaphore.");
+            }
+
+            var fenceInfo = new FenceCreateInfo
+            {
+                SType = StructureType.FenceCreateInfo,
+                Flags = FenceCreateFlags.SignaledBit
+            };
+
+            if (vk.CreateFence(device, in fenceInfo, null, out inFlightFence) != Result.Success)
+            {
+                Log.Error("Failed to create in-flight fence.");
+                throw new Exception("Failed to create in-flight fence.");
+            }
+        }
+
+        private void RecordCommandBuffer(CommandBuffer commandBuffer, uint imageIndex)
+        {
+            var beginInfo = new CommandBufferBeginInfo { SType = StructureType.CommandBufferBeginInfo };
+
+            if (vk.BeginCommandBuffer(commandBuffer, in beginInfo) != Result.Success)
+            {
+                Log.Error("Failed to begin recording command buffer.");
+                throw new Exception("Failed to begin recording command buffer.");
+            }
+
+            var clearColor = new ClearValue { Color = new ClearColorValue(0, 0, 0, 1) };
+
+            var renderPassInfo = new RenderPassBeginInfo
+            {
+                SType = StructureType.RenderPassBeginInfo,
+                RenderPass = renderPass,
+                Framebuffer = swapchainFramebuffers[(int)imageIndex],
+                RenderArea = new Rect2D(new Offset2D(0, 0), swapchainExtent),
+                ClearValueCount = 1,
+                PClearValues = &clearColor
+            };
+
+            vk.CmdBeginRenderPass(commandBuffer, in renderPassInfo, SubpassContents.Inline);
+            vk.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, pipeline);
+            vk.CmdDraw(commandBuffer, 3, 1, 0, 0);
+            vk.CmdEndRenderPass(commandBuffer);
+
+            if (vk.EndCommandBuffer(commandBuffer) != Result.Success)
+            {
+                Log.Error("Failed to record command buffer.");
+                throw new Exception("Failed to record command buffer.");
+            }
+        }
+
+        private void CleanupSwapchain()
+        {
+            foreach (var framebuffer in swapchainFramebuffers)
+            {
+                vk.DestroyFramebuffer(device, framebuffer, null);
+            }
+
+            vk.DestroyPipeline(device, pipeline, null); //Maybe we dont need this
+            vk.DestroyPipelineLayout(device, pipelineLayout, null);
+
+            foreach (var imageView in swapchainImageViews)
+            {
+                vk.DestroyImageView(device, imageView, null);
+            }
+            khrSwapchain!.DestroySwapchain(device, swapchain, null);
+        }
+
+        private void RecreateSwapchain()
+        {
+            if (window.Width <= 0 || window.Height <= 0)
+                return;
+
+            // Make sure the GPU isn't still using the old resources before destroying them.
+            vk.DeviceWaitIdle(device);
+            CleanupSwapchain();
+            CreateSwapchain(window);
+            CreateImageViews();
+            CreateGraphicsPipeline();
+            CreateFrameBuffer();
+        }
+
+
+        private void DrawFrame()
+        {
+            vk.WaitForFences(device, 1, in inFlightFence, true, ulong.MaxValue);
+            vk.ResetFences(device, 1, in inFlightFence);
+
+            uint imageIndex;
+            khrSwapchain!.AcquireNextImage(device, swapchain, ulong.MaxValue, imageAvailableSemaphore, default, &imageIndex);
+
+            vk.ResetCommandBuffer(commandBuffers[imageIndex], CommandBufferResetFlags.None);
+            RecordCommandBuffer(commandBuffers[imageIndex], imageIndex);
+
+            var waitSemaphores = stackalloc[] { imageAvailableSemaphore };
+            var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
+            var signalSemaphores = stackalloc[] { renderFinishedSemaphore };
+            var commandBuffer = commandBuffers[imageIndex];
+
+            var submitInfo = new SubmitInfo
+            {
+                SType = StructureType.SubmitInfo,
+                WaitSemaphoreCount = 1,
+                PWaitSemaphores = waitSemaphores,
+                PWaitDstStageMask = waitStages,
+                CommandBufferCount = 1,
+                PCommandBuffers = &commandBuffer,
+                SignalSemaphoreCount = 1,
+                PSignalSemaphores = signalSemaphores
+            };
+
+            if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFence) != Result.Success)
+            {
+                Log.Error("Failed to submit draw command buffer.");
+                throw new Exception("Failed to submit draw command buffer.");
+            }
+
+            var swapchains = stackalloc[] { swapchain };
+            var presentInfo = new PresentInfoKHR
+            {
+                SType = StructureType.PresentInfoKhr,
+                WaitSemaphoreCount = 1,
+                PWaitSemaphores = signalSemaphores,
+                SwapchainCount = 1,
+                PSwapchains = swapchains,
+                PImageIndices = &imageIndex
+            };
+
+            khrSwapchain.QueuePresent(graphicsQueue, in presentInfo);
+        }
+
         public void Clear(Foundation.Math.Color color)
         {
-            
+            clearColor = color;
         }
 
         public void Present()
         {
-            
+            DrawFrame();
         }
 
         public void Resize(int width, int height)
         {
-            
+            RecreateSwapchain();
         }
     }
 }
