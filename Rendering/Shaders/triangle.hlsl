@@ -1,3 +1,12 @@
+// Matches Vulkan set 0/binding 0 and OpenGL uniform-buffer binding point 0.
+// Row-major storage matches the uploaded System.Numerics matrices.
+cbuffer CameraBuffer : register(b0, space0)
+{
+    row_major float4x4 View;
+    row_major float4x4 Projection;
+};
+
+
 struct VSInput
 {
     float2 Position : POSITION;
@@ -13,7 +22,17 @@ struct VSOutput
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    output.Position = float4(input.Position, 0.0, 1.0);
+
+    // System.Numerics uses row vectors, so positions multiply View first and
+    // Projection second before being written to clip space.
+    float4 viewPosition = mul(
+        float4(input.Position, 0.0, 1.0),
+        View);
+
+    output.Position = mul(
+        viewPosition,
+        Projection);
+
     output.Color = input.Color;
     return output;
 }

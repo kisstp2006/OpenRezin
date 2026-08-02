@@ -11,6 +11,10 @@ namespace Engine.Scene.Components
     // come from the TransformComponent on the same entity.
     public struct CameraComponent
     {
+        // Disabled cameras are ignored when the scene selects its first
+        // available camera for rendering.
+        public bool Enabled;
+
         public float VerticalFieldOfView;
         public float NearPlane;
         public float FarPlane;
@@ -20,6 +24,8 @@ namespace Engine.Scene.Components
             VerticalFieldOfView = MathF.PI / 3.0f; // 60 fok
             NearPlane = 0.1f;
             FarPlane = 1000.0f;
+
+            Enabled = true;
         }
     }
 }

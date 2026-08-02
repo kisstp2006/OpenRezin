@@ -67,11 +67,16 @@ namespace Rendering
         private Buffer vertexBuffer;
         private DeviceMemory vertexBufferMemory;
 
+        // Describes and owns the Vulkan resources that expose the camera UBO as
+        // set 0, binding 0 to the vertex shader.
         private DescriptorSetLayout cameraDescriptorSetLayout;
 
         private Buffer cameraUniformBuffer;
         private DeviceMemory cameraUniformBufferMemory;
         private void* cameraUniformBufferMapped;
+
+        private DescriptorPool cameraDescriptorPool;
+        private DescriptorSet cameraDescriptorSet;
 
         private CameraBufferData currentCameraData = new()
         {
@@ -130,11 +135,92 @@ namespace Rendering
             CreateCommandBuffers();
             CreateVertexBuffer();
             CreateCameraUniformBuffer();
+            CreateCameraDescriptorSet();
             CreateSyncObjects();
 
             this.window = window;
         }
 
+        // Allocates one descriptor set and connects its binding 0 entry to the
+        // already-created camera uniform buffer.
+        private void CreateCameraDescriptorSet()
+        {
+            var poolSize = new DescriptorPoolSize
+            {
+                Type = DescriptorType.UniformBuffer,
+                DescriptorCount = 1
+            };
+
+            var poolInfo = new DescriptorPoolCreateInfo
+            {
+                SType = StructureType.DescriptorPoolCreateInfo,
+                PoolSizeCount = 1,
+                PPoolSizes = &poolSize,
+                MaxSets = 1
+            };
+
+            if (vk.CreateDescriptorPool(
+        device,
+        in poolInfo,
+        null,
+        out cameraDescriptorPool) != Result.Success)
+            {
+                throw new Exception(
+                    "Failed to create camera descriptor pool.");
+            }
+
+            DescriptorSetLayout layout =
+                cameraDescriptorSetLayout;
+
+            var allocateInfo = new DescriptorSetAllocateInfo
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = cameraDescriptorPool,
+                DescriptorSetCount = 1,
+                PSetLayouts = &layout
+            };
+
+            DescriptorSet allocatedSet = default;
+
+            if (vk.AllocateDescriptorSets(
+                device,
+                in allocateInfo,
+                &allocatedSet) != Result.Success)
+            {
+                throw new Exception(
+                    "Failed to allocate camera descriptor set.");
+            }
+
+            cameraDescriptorSet = allocatedSet;
+
+            var bufferInfo = new DescriptorBufferInfo
+            {
+                Buffer = cameraUniformBuffer,
+                Offset = 0,
+                Range = (ulong)sizeof(CameraBufferData)
+            };
+
+            var descriptorWrite = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = cameraDescriptorSet,
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                PBufferInfo = &bufferInfo
+            };
+
+            vk.UpdateDescriptorSets(
+                device,
+                1,
+                in descriptorWrite,
+                0,
+                null);
+        }
+
+        // Allocates host-visible coherent memory and maps it once so later frame
+        // updates require only a direct memory copy, not repeated map calls.
         private void CreateCameraUniformBuffer()
         {
             ulong bufferSize = (ulong)sizeof(CameraBufferData);
@@ -205,6 +291,8 @@ namespace Rendering
             cameraUniformBufferMapped = mappedData;
         }
 
+        // Declares that set 0, binding 0 contains one uniform buffer visible to
+        // the vertex stage; the pipeline layout and shader must match this.
         private void CreateCameraDescriptorSetLayout()
         {
             var cameraBinding = new DescriptorSetLayoutBinding
@@ -1013,7 +1101,7 @@ namespace Rendering
                 cameraDescriptorSetLayout;
 
 
-            // No descriptor sets or push constants yet - the shader has no external inputs.
+            // Exposes the camera descriptor layout as set 0; no push constants are used yet.
             var pipelineLayoutInfo = new PipelineLayoutCreateInfo
             {
                 SType = StructureType.PipelineLayoutCreateInfo,
@@ -1234,6 +1322,22 @@ namespace Rendering
 
             vk.CmdBeginRenderPass(commandBuffer, in renderPassInfo, SubpassContents.Inline);
             vk.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, pipeline);
+
+            // Bind the camera UBO descriptor at set 0 before issuing the draw.
+            var descriptorSets =
+                stackalloc[] { cameraDescriptorSet };
+
+            vk.CmdBindDescriptorSets(
+                commandBuffer,
+                PipelineBindPoint.Graphics,
+                pipelineLayout,
+                0,     // firstSet
+                1,     // descriptorSetCount
+                descriptorSets,
+                0,     // dynamicOffsetCount
+                null);
+
+
             var vertexBuffers = stackalloc[] { vertexBuffer };
             var offsets = stackalloc ulong[] { 0 };
             vk.CmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
@@ -1299,6 +1403,12 @@ namespace Rendering
         private void DrawFrame()
         {
             vk.WaitForFences(device, 1, in inFlightFence, true, ulong.MaxValue);
+
+            // The fence guarantees that the previous frame has finished reading
+            // this single persistently mapped camera buffer.
+            *(CameraBufferData*)cameraUniformBufferMapped =
+                currentCameraData;
+
             vk.ResetFences(device, 1, in inFlightFence);
 
             uint imageIndex;
@@ -1354,6 +1464,8 @@ namespace Rendering
             DrawFrame();
         }
 
+        // Stores the newest camera state on the CPU; DrawFrame will copy it only
+        // after its fence proves the GPU no longer reads the uniform buffer.
         public void SetCamera(in CameraBufferData cameraData)
         {
             currentCameraData = cameraData;
@@ -1367,6 +1479,7 @@ namespace Rendering
         public void Dispose()
         {
             vk.DeviceWaitIdle(device);
+            vk.DestroyDescriptorPool(device,cameraDescriptorPool,null);
             vk.UnmapMemory(device, cameraUniformBufferMemory);
             vk.DestroyBuffer(device, cameraUniformBuffer, null);
             vk.FreeMemory(device, cameraUniformBufferMemory, null);

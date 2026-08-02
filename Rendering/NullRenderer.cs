@@ -30,6 +30,8 @@ namespace Rendering
             
         }
 
+        // The null backend deliberately accepts and discards camera data so it
+        // obeys the same renderer contract without allocating GPU resources.
         public void SetCamera(in CameraBufferData cameraData)
         {
             

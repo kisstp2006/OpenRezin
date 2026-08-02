@@ -30,6 +30,8 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
 
     private readonly uint cameraUniformBuffer;
 
+
+
     private CameraBufferData currentCameraData = new()
     {
         View = Matrix4x4.Identity,
@@ -103,6 +105,10 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
             
         }
 
+        // Initialize the newly allocated UBO with identity matrices so the
+        // shader never observes undefined camera data before a scene is loaded.
+        SetCamera(currentCameraData);
+
         var framebufferSize = window.NativeWindow.FramebufferSize;
         Resize(framebufferSize.X, framebufferSize.Y);
 
@@ -111,6 +117,8 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
         Log.Info("OpenGLRenderer initialized successfully.");
     }
 
+    // Allocates one reusable uniform buffer and binds it to the shader's camera
+    // binding point, avoiding per-frame buffer allocation.
     private unsafe uint CreateCameraUniformBuffer()
     {
         uint buffer = gl.GenBuffer();
@@ -125,7 +133,7 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
             (void*)null,
             BufferUsageARB.DynamicDraw);
 
-        // A 0-s binding pointot fogja használni a shader CameraBuffer blokkja.
+        // Binding point 0 is shared with the shader's CameraBuffer block.
         gl.BindBufferBase(
             BufferTargetARB.UniformBuffer,
             0,
@@ -151,6 +159,8 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
         gl.Clear((uint)ClearBufferMask.ColorBufferBit);
     }
 
+    // Copies the latest matrices into the existing UBO through direct-state
+    // access, without temporary managed allocations or GL binding changes.
     public unsafe void SetCamera(in CameraBufferData cameraData)
     {
         ThrowIfDisposed();

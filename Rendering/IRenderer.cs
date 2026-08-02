@@ -13,6 +13,8 @@ namespace Rendering
         void Clear(Color color);
         void Present();
         void Resize(int width, int height);
+        // Supplies backend-independent camera matrices without exposing ECS
+        // components to the rendering layer.
         void SetCamera(in CameraBufferData cameraData);
 
 
