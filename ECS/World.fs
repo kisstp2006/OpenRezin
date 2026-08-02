@@ -3,6 +3,7 @@
 
 namespace ECS.World
 
+open System.Runtime.InteropServices
 open System
 open System.Collections.Generic
 open Foundation.Containers
@@ -91,3 +92,54 @@ type World() =
 
             let store = componentStores.[typeof<'T>] :?> ResizeArray<'T>
             store.[entity.Index] <- Unchecked.defaultof<'T>
+    
+    // Finds the lowest-index live entity containing both component types.
+    // The loop creates no iterator, option value, or temporary collection.
+    member this.TryFindFirst<'T1, 'T2>(
+        predicate: Func<'T1, 'T2, bool>,
+        [<Out>] entity: byref<Entity>) : bool =
+
+        entity <- Id.Invalid
+
+        match componentStores.TryGetValue(typeof<'T1>),
+              componentStores.TryGetValue(typeof<'T2>) with
+
+        | (true, firstStoreObject),
+          (true, secondStoreObject) ->
+
+            let firstStore =
+                firstStoreObject :?> ResizeArray<'T1>
+
+            let secondStore =
+                secondStoreObject :?> ResizeArray<'T2>
+
+            // These are resolved once, outside the entity loop.
+            let firstBit = componentTypes.GetIndex<'T1>()
+            let secondBit = componentTypes.GetIndex<'T2>()
+
+            let mutable index = 0
+            let mutable found = false
+
+            while not found &&
+                  index < entityMasks.SlotCount do
+
+                match entityMasks.TryGetSlot(index) with
+                | true, candidate, mask ->
+                    if mask.IsBitSet(firstBit) &&
+                       mask.IsBitSet(secondBit) &&
+                       predicate.Invoke(
+                           firstStore.[index],
+                           secondStore.[index]) then
+
+                        entity <- candidate
+                        found <- true
+
+                | false, _, _ ->
+                    ()
+
+                index <- index + 1
+
+            found
+
+        | _ ->
+            false
