@@ -3,6 +3,9 @@
 
 using Engine.Scene.Components;
 using System.Numerics;
+using ECS.World;
+using Foundation.Types;
+using Rendering;
 
 namespace Engine.Scene.Systems
 {
@@ -28,9 +31,7 @@ namespace Engine.Scene.Systems
         }
         // Builds the shared perspective projection; its 0..1 depth range matches
         // Vulkan directly and OpenGL after ClipControl is configured.
-        public static Matrix4x4 CalculateProjectionMatrix(
-            in CameraComponent camera,
-            float aspectRatio)
+        public static Matrix4x4 CalculateProjectionMatrix(in CameraComponent camera,float aspectRatio)
         {
             if (aspectRatio <= 0.0f)
             {
@@ -43,6 +44,37 @@ namespace Engine.Scene.Systems
                 aspectRatio,
                 camera.NearPlane,
                 camera.FarPlane);
+        }
+
+        public static bool TryGetCameraData(World world, float aspectRatio, out CameraBufferData cameraData)
+        {
+            cameraData = default;
+
+            bool found = world.TryFindFirst<CameraComponent, TransformComponent>(static (camera, transform) => camera.Enabled, out Id cameraEntity);
+
+            if (!found)
+                return false;
+
+            if (!world.TryGetComponent(
+            cameraEntity,
+            out CameraComponent camera) ||
+        !world.TryGetComponent(
+            cameraEntity,
+            out TransformComponent transform))
+            {
+                return false;
+            }
+
+            cameraData = new CameraBufferData
+            {
+                View = CalculateViewMatrix(in transform),
+                Projection = CalculateProjectionMatrix(
+                    in camera,
+                    aspectRatio)
+            };
+
+            return true;
+
         }
     }
 }
