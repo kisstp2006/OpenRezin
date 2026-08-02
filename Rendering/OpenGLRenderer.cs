@@ -28,6 +28,15 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
     private bool disposed;
     private readonly uint vertexBuffer;
 
+    private readonly uint cameraUniformBuffer;
+
+    private CameraBufferData currentCameraData = new()
+    {
+        View = Matrix4x4.Identity,
+        Projection = Matrix4x4.Identity
+    };
+
+
     static readonly Vertex[] vertices = new Vertex[]
         {
             new Vertex { Position = new Vector2(0.0f, -0.5f), Color = new Vector3(1, 0, 0) },
@@ -55,9 +64,16 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
 
         gl = GL.GetApi(window.NativeWindow);
 
+        // Match Vulkan's 0..1 clip-space depth while keeping OpenGL's lower-left origin.
+        // The vertex shader compiler handles the separate Y-axis flip.
+        gl.ClipControl(
+            ClipControlOrigin.LowerLeft,
+            ClipControlDepth.ZeroToOne);
+
         gl.Enable(EnableCap.FramebufferSrgb);
 
         shaderProgram = CreateShaderProgram();
+        cameraUniformBuffer = CreateCameraUniformBuffer();
 
         // The VAO records the attribute layout, so it must be bound before we configure anything.
         vertexArray = gl.GenVertexArray();
@@ -95,6 +111,33 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
         Log.Info("OpenGLRenderer initialized successfully.");
     }
 
+    private unsafe uint CreateCameraUniformBuffer()
+    {
+        uint buffer = gl.GenBuffer();
+
+        gl.BindBuffer(
+            BufferTargetARB.UniformBuffer,
+            buffer);
+
+        gl.BufferData(
+            BufferTargetARB.UniformBuffer,
+            (nuint)sizeof(CameraBufferData),
+            (void*)null,
+            BufferUsageARB.DynamicDraw);
+
+        // A 0-s binding pointot fogja használni a shader CameraBuffer blokkja.
+        gl.BindBufferBase(
+            BufferTargetARB.UniformBuffer,
+            0,
+            buffer);
+
+        gl.BindBuffer(
+            BufferTargetARB.UniformBuffer,
+            0);
+
+        return buffer;
+    }
+
     public void Clear(EngineColor color)
     {
         ThrowIfDisposed();
@@ -106,6 +149,23 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
             color.a);
 
         gl.Clear((uint)ClearBufferMask.ColorBufferBit);
+    }
+
+    public unsafe void SetCamera(in CameraBufferData cameraData)
+    {
+        ThrowIfDisposed();
+        currentCameraData = cameraData;
+
+        fixed (CameraBufferData* dataPtr =
+        &currentCameraData)
+        {
+            gl.NamedBufferSubData(
+                cameraUniformBuffer,
+                0,
+                (nuint)sizeof(CameraBufferData),
+                dataPtr);
+        }
+
     }
 
     public void Present()
@@ -216,6 +276,7 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
         // GL object deletion needs the owning context current, same as creation.
         window.NativeWindow.MakeCurrent();
 
+        gl.DeleteBuffer(cameraUniformBuffer);
         gl.DeleteVertexArray(vertexArray);
         gl.DeleteProgram(shaderProgram);
         gl.DeleteBuffer(vertexBuffer);
@@ -235,4 +296,6 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
         }
         
     }
+
+
 }

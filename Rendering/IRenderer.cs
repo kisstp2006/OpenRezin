@@ -13,5 +13,9 @@ namespace Rendering
         void Clear(Color color);
         void Present();
         void Resize(int width, int height);
+        void SetCamera(in CameraBufferData cameraData);
+
+
+
     }
 }

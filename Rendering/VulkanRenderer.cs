@@ -67,6 +67,18 @@ namespace Rendering
         private Buffer vertexBuffer;
         private DeviceMemory vertexBufferMemory;
 
+        private DescriptorSetLayout cameraDescriptorSetLayout;
+
+        private Buffer cameraUniformBuffer;
+        private DeviceMemory cameraUniformBufferMemory;
+        private void* cameraUniformBufferMapped;
+
+        private CameraBufferData currentCameraData = new()
+        {
+            View = Matrix4x4.Identity,
+            Projection = Matrix4x4.Identity
+        };
+
         // test
         static readonly Vertex[] vertices = new Vertex[]
         {
@@ -91,6 +103,8 @@ namespace Rendering
         
         }
 
+        // Groups the surface capabilities, formats, and presentation modes that
+        // determine whether this GPU can present images to the current window.
         private struct SwapchainSupportDetails
         {
             public SurfaceCapabilitiesKHR Capabilities;
@@ -106,6 +120,7 @@ namespace Rendering
             Log.Info("VulkanRenderer initialized successfully.");
             SelectPhysicalDevice();
             CreateLogicalDevice();
+            CreateCameraDescriptorSetLayout();
             CreateSwapchain(window);
             CreateImageViews();
             CreateRenderPass();
@@ -114,9 +129,109 @@ namespace Rendering
             CreateCommandPool();
             CreateCommandBuffers();
             CreateVertexBuffer();
+            CreateCameraUniformBuffer();
             CreateSyncObjects();
 
             this.window = window;
+        }
+
+        private void CreateCameraUniformBuffer()
+        {
+            ulong bufferSize = (ulong)sizeof(CameraBufferData);
+
+
+            var bufferInfo = new BufferCreateInfo
+            {
+                SType = StructureType.BufferCreateInfo,
+                Size = bufferSize,
+                Usage = BufferUsageFlags.UniformBufferBit,
+                SharingMode = SharingMode.Exclusive
+            };
+            if (vk.CreateBuffer(
+                device,
+                in bufferInfo,
+                null,
+                out cameraUniformBuffer) != Result.Success)
+            {
+                throw new Exception(
+                    "Failed to create camera uniform buffer.");
+            }
+
+            vk.GetBufferMemoryRequirements(device,cameraUniformBuffer,out MemoryRequirements requirements);
+
+            var allocationInfo = new MemoryAllocateInfo
+            {
+                SType = StructureType.MemoryAllocateInfo,
+                AllocationSize = requirements.Size,
+                MemoryTypeIndex = FindMemoryType(
+            requirements.MemoryTypeBits,
+            MemoryPropertyFlags.HostVisibleBit |
+            MemoryPropertyFlags.HostCoherentBit)
+            };
+
+            if (vk.AllocateMemory(
+                device,
+                in allocationInfo,
+                null,
+                out cameraUniformBufferMemory) != Result.Success)
+            {
+                throw new Exception(
+                    "Failed to allocate camera uniform buffer memory.");
+            }
+
+            if (vk.BindBufferMemory(
+                device,
+                cameraUniformBuffer,
+                cameraUniformBufferMemory,
+                0) != Result.Success)
+            {
+                throw new Exception(
+                    "Failed to bind camera uniform buffer memory.");
+            }
+            void* mappedData = null;
+
+
+            if (vk.MapMemory(
+                device,
+                cameraUniformBufferMemory,
+                0,
+                bufferSize,
+                0,
+                &mappedData) != Result.Success)
+            {
+                throw new Exception(
+                    "Failed to map camera uniform buffer memory.");
+            }
+            cameraUniformBufferMapped = mappedData;
+        }
+
+        private void CreateCameraDescriptorSetLayout()
+        {
+            var cameraBinding = new DescriptorSetLayoutBinding
+            {
+                Binding = 0,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                StageFlags = ShaderStageFlags.VertexBit,
+                PImmutableSamplers = null
+            };
+
+            var layoutInfo = new DescriptorSetLayoutCreateInfo
+            {
+                SType = StructureType.DescriptorSetLayoutCreateInfo,
+                BindingCount = 1,
+                PBindings = &cameraBinding
+            };
+
+            if (vk.CreateDescriptorSetLayout(
+                device,
+                in layoutInfo,
+                null,
+                out cameraDescriptorSetLayout) != Result.Success)
+            {
+                throw new Exception(
+                    "Failed to create camera descriptor set layout.");
+            }
         }
 
         private void CreateInstance(SilkWindow window)
@@ -258,6 +373,8 @@ namespace Rendering
             return indices;
         }
 
+        // A GPU is usable only if its queues, swapchain extension, formats, and
+        // presentation modes satisfy everything required by this renderer.
         private bool IsDeviceSuitable(PhysicalDevice device, SurfaceKHR surface)
         {
             var indices = FindQueueFamilies(device, surface);
@@ -275,6 +392,8 @@ namespace Rendering
                    swapchainSupport.PresentModes.Length > 0;
         }
 
+        // Enumerates the extensions exposed by one GPU and verifies that the
+        // device-level VK_KHR_swapchain extension is available.
         private bool CheckDeviceExtensionSupport(PhysicalDevice device)
         {
             uint extensionCount = 0;
@@ -334,6 +453,8 @@ namespace Rendering
 
         }
 
+        // Queries all surface-dependent swapchain choices using Vulkan's
+        // count-first, allocate-second enumeration pattern.
         private SwapchainSupportDetails QuerySwapchainSupport(
     PhysicalDevice device)
         {
@@ -888,11 +1009,16 @@ namespace Rendering
                 PAttachments = &colorBlendAttachment
             };
 
+            DescriptorSetLayout descriptorSetLayout =
+                cameraDescriptorSetLayout;
+
+
             // No descriptor sets or push constants yet - the shader has no external inputs.
             var pipelineLayoutInfo = new PipelineLayoutCreateInfo
             {
                 SType = StructureType.PipelineLayoutCreateInfo,
-                SetLayoutCount = 0,
+                SetLayoutCount = 1,
+                PSetLayouts = &descriptorSetLayout,
                 PushConstantRangeCount = 0
             };
 
@@ -1228,6 +1354,11 @@ namespace Rendering
             DrawFrame();
         }
 
+        public void SetCamera(in CameraBufferData cameraData)
+        {
+            currentCameraData = cameraData;
+        }
+
         public void Resize(int width, int height)
         {
             RecreateSwapchain();
@@ -1236,12 +1367,16 @@ namespace Rendering
         public void Dispose()
         {
             vk.DeviceWaitIdle(device);
+            vk.UnmapMemory(device, cameraUniformBufferMemory);
+            vk.DestroyBuffer(device, cameraUniformBuffer, null);
+            vk.FreeMemory(device, cameraUniformBufferMemory, null);
             vk.DestroySemaphore(device, renderFinishedSemaphore, null);
             vk.DestroySemaphore(device, imageAvailableSemaphore, null);
             vk.DestroyFence(device, inFlightFence, null);
             vk.DestroyCommandPool(device, commandPool, null);
             vk.DestroyBuffer(device, vertexBuffer, null);
             CleanupSwapchain();
+            vk.DestroyDescriptorSetLayout(device,cameraDescriptorSetLayout,null);
             vk.DestroyRenderPass(device, renderPass, null);
             vk.FreeMemory(device, vertexBufferMemory, null);
             vk.DestroyDevice(device, null);

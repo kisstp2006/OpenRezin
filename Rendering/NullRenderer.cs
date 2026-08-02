@@ -29,5 +29,10 @@ namespace Rendering
         {
             
         }
+
+        public void SetCamera(in CameraBufferData cameraData)
+        {
+            
+        }
     }
 }
