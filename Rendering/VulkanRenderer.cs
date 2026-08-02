@@ -154,6 +154,7 @@ namespace Rendering
         // Prefers a discrete GPU, falls back to integrated, then to whatever is available.
         private void SelectPhysicalDevice(bool preferDiscreteGPU = true)
         {
+
             var devices = vk.GetPhysicalDevices(instance);
             if (preferDiscreteGPU)
             {
@@ -162,7 +163,7 @@ namespace Rendering
                     var properties = vk.GetPhysicalDeviceProperties(device);
                     Log.Info($"Found GPU: {Marshal.PtrToStringAnsi((IntPtr)properties.DeviceName)}");
 
-                    if (properties.DeviceType == PhysicalDeviceType.DiscreteGpu)
+                    if (properties.DeviceType == PhysicalDeviceType.DiscreteGpu && IsDeviceSuitable(device, surface))
                     {
                         physicalDevice = device;
                         Log.Info($"Selected discrete GPU: {Marshal.PtrToStringAnsi((IntPtr)properties.DeviceName)}");
@@ -177,7 +178,7 @@ namespace Rendering
                     var properties = vk.GetPhysicalDeviceProperties(device);
                     Log.Info($"Found GPU: {Marshal.PtrToStringAnsi((IntPtr)properties.DeviceName)}");
 
-                    if (properties.DeviceType == PhysicalDeviceType.IntegratedGpu)
+                    if (properties.DeviceType == PhysicalDeviceType.IntegratedGpu && IsDeviceSuitable(device, surface))
                     {
                         physicalDevice = device;
                         Log.Info($"Selected integrated GPU: {Marshal.PtrToStringAnsi((IntPtr)properties.DeviceName)}");
@@ -185,15 +186,25 @@ namespace Rendering
                     }
                 }
             }
-            // No preferred GPU type found - fall back to the first available device.
-            if (physicalDevice.Handle == 0)
-                physicalDevice = devices.FirstOrDefault();
+            // No preferred GPU type found - try again with any available GPU.
+            foreach (var device in devices)
+            {
+                var properties = vk.GetPhysicalDeviceProperties(device);
+                Log.Info($"Found GPU: {Marshal.PtrToStringAnsi((IntPtr)properties.DeviceName)}");
 
-            if (physicalDevice.Handle == 0)
+                if (IsDeviceSuitable(device, surface))
                 {
-                    Log.Error("No GPUs found with Vulkan support.");
-                    throw new Exception("No GPUs found with Vulkan support.");
+                    physicalDevice = device;
+                    Log.Info($"Selected fallback GPU: {Marshal.PtrToStringAnsi((IntPtr)properties.DeviceName)}");
+                    return;
                 }
+                else
+                {
+                    Log.Warn($"GPU {Marshal.PtrToStringAnsi((IntPtr)properties.DeviceName)} is not suitable for rendering.");
+                }
+            }
+            Log.Error("No suitable GPU found with Vulkan support.");
+            throw new NotSupportedException("No suitable GPU found with Vulkan support.");
         }
         private QueueFamilyIndices FindQueueFamilies(PhysicalDevice device, SurfaceKHR surface)
         {
@@ -237,6 +248,12 @@ namespace Rendering
             }
 
             return indices;
+        }
+
+        private bool IsDeviceSuitable(PhysicalDevice device, SurfaceKHR surface)
+        {
+            var indices = FindQueueFamilies(device, surface);
+            return indices.IsComplete();
         }
 
         private void CreateLogicalDevice()
@@ -1037,14 +1054,16 @@ namespace Rendering
         {
             vk.DeviceWaitIdle(device);
             vk.DestroySemaphore(device, renderFinishedSemaphore, null);
+            vk.DestroySemaphore(device, imageAvailableSemaphore, null);
             vk.DestroyFence(device, inFlightFence, null);
             vk.DestroyCommandPool(device, commandPool, null);
             vk.DestroyBuffer(device, vertexBuffer, null);
             CleanupSwapchain();
             vk.DestroyRenderPass(device, renderPass, null);
-            vk.DestroyDevice(device, null);
-            vk.DestroyInstance(instance, null);
             vk.FreeMemory(device, vertexBufferMemory, null);
+            vk.DestroyDevice(device, null);
+            khrSurface!.DestroySurface(instance, surface, null);
+            vk.DestroyInstance(instance, null);
         }
     }
 }
