@@ -17,6 +17,7 @@ namespace Rendering
         // components to the rendering layer.
         void SetCamera(in CameraBufferData cameraData);
 
+        void SetModel(in ObjectBufferData objectData);
 
 
     }

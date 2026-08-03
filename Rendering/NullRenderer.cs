@@ -36,5 +36,10 @@ namespace Rendering
         {
             
         }
+
+        public void SetModel(in ObjectBufferData objectData)
+        {
+            
+        }
     }
 }

@@ -20,7 +20,7 @@ using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 namespace Rendering
 {
-    public unsafe class VulkanRenderer : IRenderer , IDisposable
+    public unsafe class VulkanRenderer : IRenderer, IDisposable
     {
         private readonly Vk vk;
         private Instance instance;
@@ -82,6 +82,15 @@ namespace Rendering
 
         private const string ValidationLayerName = "VK_LAYER_KHRONOS_validation";
 
+        private Buffer objectUniformBuffer;
+        private DeviceMemory objectUniformBufferMemory;
+        private void* objectUniformBufferMapped;
+
+        private ObjectBufferData currentObjectData = new()
+        {
+            Model = Matrix4x4.Identity
+        };
+
         private CameraBufferData currentCameraData = new()
         {
             View = Matrix4x4.Identity,
@@ -109,7 +118,7 @@ namespace Rendering
             // True once every queue family we need (currently just graphics) has been found.
             public readonly bool IsComplete() => GraphicsFamily.HasValue && PresentFamily.HasValue;
 
-        
+
         }
 
         // Groups the surface capabilities, formats, and presentation modes that
@@ -139,6 +148,7 @@ namespace Rendering
             CreateCommandBuffers();
             CreateVertexBuffer();
             CreateCameraUniformBuffer();
+            CreateObjectUniformBuffer();
             CreateCameraDescriptorSet();
             CreateSyncObjects();
 
@@ -152,7 +162,7 @@ namespace Rendering
             var poolSize = new DescriptorPoolSize
             {
                 Type = DescriptorType.UniformBuffer,
-                DescriptorCount = 1
+                DescriptorCount = 2
             };
 
             var poolInfo = new DescriptorPoolCreateInfo
@@ -172,9 +182,9 @@ namespace Rendering
                 throw new Exception(
                     "Failed to create camera descriptor pool.");
             }
-
-            DescriptorSetLayout layout =
-                cameraDescriptorSetLayout;
+            // Allocate the descriptor set first so we can reference it when
+            // writing the descriptor bindings.
+            DescriptorSetLayout layout = cameraDescriptorSetLayout;
 
             var allocateInfo = new DescriptorSetAllocateInfo
             {
@@ -197,14 +207,25 @@ namespace Rendering
 
             cameraDescriptorSet = allocatedSet;
 
-            var bufferInfo = new DescriptorBufferInfo
+            // Prepare the buffer infos and two writes (binding 0 = camera,
+            // binding 1 = object) and update the descriptor set in a single call.
+            var cameraBufferInfo = new DescriptorBufferInfo
             {
                 Buffer = cameraUniformBuffer,
                 Offset = 0,
                 Range = (ulong)sizeof(CameraBufferData)
             };
 
-            var descriptorWrite = new WriteDescriptorSet
+            var objectBufferInfo = new DescriptorBufferInfo
+            {
+                Buffer = objectUniformBuffer,
+                Offset = 0,
+                Range = (ulong)sizeof(ObjectBufferData)
+            };
+
+            var descriptorWrites = stackalloc WriteDescriptorSet[2];
+
+            descriptorWrites[0] = new WriteDescriptorSet
             {
                 SType = StructureType.WriteDescriptorSet,
                 DstSet = cameraDescriptorSet,
@@ -212,13 +233,24 @@ namespace Rendering
                 DstArrayElement = 0,
                 DescriptorType = DescriptorType.UniformBuffer,
                 DescriptorCount = 1,
-                PBufferInfo = &bufferInfo
+                PBufferInfo = &cameraBufferInfo
+            };
+
+            descriptorWrites[1] = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = cameraDescriptorSet,
+                DstBinding = 1,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                PBufferInfo = &objectBufferInfo
             };
 
             vk.UpdateDescriptorSets(
                 device,
-                1,
-                in descriptorWrite,
+                2,
+                descriptorWrites,
                 0,
                 null);
         }
@@ -247,7 +279,7 @@ namespace Rendering
                     "Failed to create camera uniform buffer.");
             }
 
-            vk.GetBufferMemoryRequirements(device,cameraUniformBuffer,out MemoryRequirements requirements);
+            vk.GetBufferMemoryRequirements(device, cameraUniformBuffer, out MemoryRequirements requirements);
 
             var allocationInfo = new MemoryAllocateInfo
             {
@@ -297,11 +329,24 @@ namespace Rendering
 
         // Declares that set 0, binding 0 contains one uniform buffer visible to
         // the vertex stage; the pipeline layout and shader must match this.
+        // Declares that set 0 contains two uniform buffers visible to the vertex
+        // stage: binding 0 for the camera, binding 1 for the per-object model matrix.
         private void CreateCameraDescriptorSetLayout()
         {
-            var cameraBinding = new DescriptorSetLayoutBinding
+            var bindings = stackalloc DescriptorSetLayoutBinding[2];
+
+            bindings[0] = new DescriptorSetLayoutBinding
             {
                 Binding = 0,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                StageFlags = ShaderStageFlags.VertexBit,
+                PImmutableSamplers = null
+            };
+
+            bindings[1] = new DescriptorSetLayoutBinding
+            {
+                Binding = 1,
                 DescriptorType = DescriptorType.UniformBuffer,
                 DescriptorCount = 1,
                 StageFlags = ShaderStageFlags.VertexBit,
@@ -311,8 +356,8 @@ namespace Rendering
             var layoutInfo = new DescriptorSetLayoutCreateInfo
             {
                 SType = StructureType.DescriptorSetLayoutCreateInfo,
-                BindingCount = 1,
-                PBindings = &cameraBinding
+                BindingCount = 2,
+                PBindings = bindings
             };
 
             if (vk.CreateDescriptorSetLayout(
@@ -526,7 +571,7 @@ namespace Rendering
             }
 
 
-            if (extensionCount > 0) 
+            if (extensionCount > 0)
             {
                 availableExtensions =
                     new ExtensionProperties[extensionCount];
@@ -757,7 +802,8 @@ namespace Rendering
 
         private void CreateSwapchain(SilkWindow window)
         {
-            if(khrSurface!.GetPhysicalDeviceSurfaceCapabilities(physicalDevice, surface, out SurfaceCapabilitiesKHR capabilities) == Result.Success){
+            if (khrSurface!.GetPhysicalDeviceSurfaceCapabilities(physicalDevice, surface, out SurfaceCapabilitiesKHR capabilities) == Result.Success)
+            {
                 uint formatCount = 0;
 
                 khrSurface.GetPhysicalDeviceSurfaceFormats(physicalDevice, surface, ref formatCount, null);
@@ -791,7 +837,7 @@ namespace Rendering
                     khrSurface.GetPhysicalDeviceSurfacePresentModes(physicalDevice, surface, ref presentModeCount, presentModesPtr);
                 }
 
-                foreach(var presentMode in presentModes)
+                foreach (var presentMode in presentModes)
                 {
                     if (presentMode == PresentModeKHR.MailboxKhr)
                     {
@@ -819,7 +865,7 @@ namespace Rendering
 
                 uint imageCount = capabilities.MinImageCount + 1;
 
-                if(capabilities.MaxImageCount>0 && imageCount > capabilities.MaxImageCount)
+                if (capabilities.MaxImageCount > 0 && imageCount > capabilities.MaxImageCount)
                     imageCount = capabilities.MaxImageCount;
 
                 if (!vk.TryGetDeviceExtension<KhrSwapchain>(instance, device, out khrSwapchain))
@@ -838,7 +884,7 @@ namespace Rendering
                     ImageColorSpace = chosenFormat.ColorSpace,
                     ImageExtent = extent,
                     ImageArrayLayers = 1,
-                    ImageSharingMode= SharingMode.Exclusive,
+                    ImageSharingMode = SharingMode.Exclusive,
                     ImageUsage = ImageUsageFlags.ColorAttachmentBit,
                     PreTransform = capabilities.CurrentTransform,
                     CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr,
@@ -847,11 +893,11 @@ namespace Rendering
                     OldSwapchain = default
                 };
 
-                 if(khrSwapchain.CreateSwapchain(device, in swapchainCreateInfo, null, out swapchain) != Result.Success)
-                 {
+                if (khrSwapchain.CreateSwapchain(device, in swapchainCreateInfo, null, out swapchain) != Result.Success)
+                {
                     Log.Error("Failed to create swapchain.");
                     throw new Exception("Failed to create swapchain.");
-                 }
+                }
 
                 // Driver may have created more images than we asked for,
                 // so re-query the real count before allocating the array.
@@ -903,11 +949,11 @@ namespace Rendering
                         LayerCount = 1
                     }
                 };
-            if (vk.CreateImageView(device, in createInfo, null, out swapchainImageViews[i]) != Result.Success)
-            {
-                Log.Error($"Failed to create image view for swapchain image {i}.");
-                throw new Exception($"Failed to create image view for swapchain image {i}.");
-            }
+                if (vk.CreateImageView(device, in createInfo, null, out swapchainImageViews[i]) != Result.Success)
+                {
+                    Log.Error($"Failed to create image view for swapchain image {i}.");
+                    throw new Exception($"Failed to create image view for swapchain image {i}.");
+                }
             }
 
         }
@@ -985,12 +1031,12 @@ namespace Rendering
         {
             // Raw SPIR-V bytecode compiled ahead of time from the GLSL sources via glslc.
             byte[] vertShaderCode = ShaderCompiler.CompileHlslToSpirv(
-                    "Shaders/triangle.hlsl", 
-                    "VSMain", 
+                    "Shaders/triangle.hlsl",
+                    "VSMain",
                     "vs_6_0");
             byte[] fragShaderCode = ShaderCompiler.CompileHlslToSpirv(
-                    "Shaders/triangle.hlsl", 
-                    "PSMain", 
+                    "Shaders/triangle.hlsl",
+                    "PSMain",
                     "ps_6_0");
 
             ShaderModule vertexShaderModule = CreateShaderModule(vertShaderCode);
@@ -1182,7 +1228,7 @@ namespace Rendering
         {
             swapchainFramebuffers = new Framebuffer[swapchainImageViews.Length];
 
-            for(int i = 0; i < swapchainImageViews.Length; i++)
+            for (int i = 0; i < swapchainImageViews.Length; i++)
             {
                 var attachment = swapchainImageViews[i];
 
@@ -1329,7 +1375,56 @@ namespace Rendering
                 throw new Exception("Failed to create in-flight fence.");
             }
         }
-        
+
+        private void CreateObjectUniformBuffer()
+        {
+            ulong bufferSize = (ulong)sizeof(ObjectBufferData);
+
+            var bufferInfo = new BufferCreateInfo
+            {
+                SType = StructureType.BufferCreateInfo,
+                Size = bufferSize,
+                Usage = BufferUsageFlags.UniformBufferBit,
+                SharingMode = SharingMode.Exclusive
+            };
+
+            if (vk.CreateBuffer(device, in bufferInfo, null, out objectUniformBuffer) != Result.Success)
+            {
+                throw new Exception("Failed to create object uniform buffer.");
+            }
+
+            vk.GetBufferMemoryRequirements(device, objectUniformBuffer, out MemoryRequirements requirements);
+
+            var allocationInfo = new MemoryAllocateInfo
+            {
+                SType = StructureType.MemoryAllocateInfo,
+                AllocationSize = requirements.Size,
+                MemoryTypeIndex = FindMemoryType(
+                    requirements.MemoryTypeBits,
+                    MemoryPropertyFlags.HostVisibleBit |
+                    MemoryPropertyFlags.HostCoherentBit)
+            };
+
+            if (vk.AllocateMemory(device, in allocationInfo, null, out objectUniformBufferMemory) != Result.Success)
+            {
+                throw new Exception("Failed to allocate object uniform buffer memory.");
+            }
+
+            if (vk.BindBufferMemory(device, objectUniformBuffer, objectUniformBufferMemory, 0) != Result.Success)
+            {
+                throw new Exception("Failed to bind object uniform buffer memory.");
+            }
+
+            void* mappedData = null;
+
+            if (vk.MapMemory(device, objectUniformBufferMemory, 0, bufferSize, 0, &mappedData) != Result.Success)
+            {
+                throw new Exception("Failed to map object uniform buffer memory.");
+            }
+
+            objectUniformBufferMapped = mappedData;
+        }
+
         private void RecordCommandBuffer(CommandBuffer commandBuffer, uint imageIndex)
         {
             var beginInfo = new CommandBufferBeginInfo { SType = StructureType.CommandBufferBeginInfo };
@@ -1460,6 +1555,9 @@ namespace Rendering
             // this single persistently mapped camera buffer.
             *(CameraBufferData*)cameraUniformBufferMapped =
                 currentCameraData;
+            *(CameraBufferData*)cameraUniformBufferMapped = currentCameraData;
+            *(ObjectBufferData*)objectUniformBufferMapped = currentObjectData;
+
 
             vk.ResetFences(device, 1, in inFlightFence);
 
@@ -1531,10 +1629,13 @@ namespace Rendering
         public void Dispose()
         {
             vk.DeviceWaitIdle(device);
-            vk.DestroyDescriptorPool(device,cameraDescriptorPool,null);
+            vk.DestroyDescriptorPool(device, cameraDescriptorPool, null);
             vk.UnmapMemory(device, cameraUniformBufferMemory);
+            vk.UnmapMemory(device, objectUniformBufferMemory);
             vk.DestroyBuffer(device, cameraUniformBuffer, null);
+            vk.DestroyBuffer(device, objectUniformBuffer, null);
             vk.FreeMemory(device, cameraUniformBufferMemory, null);
+            vk.FreeMemory(device, objectUniformBufferMemory, null);
             foreach (var semaphore in renderFinishedSemaphores)
             {
                 vk.DestroySemaphore(device, semaphore, null);
@@ -1544,12 +1645,19 @@ namespace Rendering
             vk.DestroyCommandPool(device, commandPool, null);
             vk.DestroyBuffer(device, vertexBuffer, null);
             CleanupSwapchain();
-            vk.DestroyDescriptorSetLayout(device,cameraDescriptorSetLayout,null);
+            vk.DestroyDescriptorSetLayout(device, cameraDescriptorSetLayout, null);
             vk.DestroyRenderPass(device, renderPass, null);
             vk.FreeMemory(device, vertexBufferMemory, null);
             vk.DestroyDevice(device, null);
             khrSurface!.DestroySurface(instance, surface, null);
             vk.DestroyInstance(instance, null);
         }
+
+        public void SetModel(in ObjectBufferData objectData)
+        {
+            currentObjectData = objectData;
+        }
     }
 }
+
+

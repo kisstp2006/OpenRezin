@@ -29,6 +29,12 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
     private readonly uint vertexBuffer;
 
     private readonly uint cameraUniformBuffer;
+    private uint objectUniformBuffer;
+
+    private ObjectBufferData currentObjectData = new()
+    {
+        Model = Matrix4x4.Identity
+    };
 
     private readonly DebugProc debugCallback;
 
@@ -88,6 +94,7 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
 
         shaderProgram = CreateShaderProgram();
         cameraUniformBuffer = CreateCameraUniformBuffer();
+        objectUniformBuffer = CreateObjectUniformBuffer();
 
         // The VAO records the attribute layout, so it must be bound before we configure anything.
         vertexArray = gl.GenVertexArray();
@@ -120,6 +127,8 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
         // Initialize the newly allocated UBO with identity matrices so the
         // shader never observes undefined camera data before a scene is loaded.
         SetCamera(currentCameraData);
+        // Also initialize object UBO so Model is valid before first SetModel.
+        SetModel(currentObjectData);
 
         var framebufferSize = window.NativeWindow.FramebufferSize;
         Resize(framebufferSize.X, framebufferSize.Y);
@@ -154,6 +163,28 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
         gl.BindBuffer(
             BufferTargetARB.UniformBuffer,
             0);
+
+        return buffer;
+    }
+
+    // Allocates a per-object uniform buffer and binds it to binding point 1 to
+    // match the shader's ObjectBuffer block (register b1).
+    private unsafe uint CreateObjectUniformBuffer()
+    {
+        uint buffer = gl.GenBuffer();
+
+        gl.BindBuffer(BufferTargetARB.UniformBuffer, buffer);
+
+        gl.BufferData(
+            BufferTargetARB.UniformBuffer,
+            (nuint)sizeof(ObjectBufferData),
+            (void*)null,
+            BufferUsageARB.DynamicDraw);
+
+        // Binding point 1 corresponds to register(b1) in the HLSL shader.
+        gl.BindBufferBase(BufferTargetARB.UniformBuffer, 1, buffer);
+
+        gl.BindBuffer(BufferTargetARB.UniformBuffer, 0);
 
         return buffer;
     }
@@ -326,5 +357,18 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
         
     }
 
+    public unsafe void SetModel(in ObjectBufferData objectData)
+    {
+        ThrowIfDisposed();
+        currentObjectData = objectData;
 
+        fixed (ObjectBufferData* dataPtr = &currentObjectData)
+        {
+            gl.NamedBufferSubData(
+                objectUniformBuffer,
+                0,
+                (nuint)sizeof(ObjectBufferData),
+                dataPtr);
+        }
+    }
 }

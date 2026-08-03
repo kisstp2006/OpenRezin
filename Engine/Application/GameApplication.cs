@@ -2,6 +2,8 @@
 // Dual-licensed under the MIT License and MIT No Attribution (MIT-0) — see LICENSE.txt
 
 using Core.System;
+using Engine.Scene;
+using Engine.Scene.Systems;
 using Foundation;
 using Foundation.Logger;
 using Foundation.Math;
@@ -9,6 +11,7 @@ using Foundation.Time;
 using Rendering;
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Text;
 
 namespace Engine.Application
@@ -18,6 +21,8 @@ namespace Engine.Application
         private readonly IWindow window;
         private readonly IRenderer renderer;
         private readonly Clock clock = new Clock();
+        private readonly GameScene scene = new GameScene();
+        public GameScene Scene => scene;
 
         public GameApplication(IWindow window, IRenderer renderer)
         {
@@ -34,13 +39,33 @@ namespace Engine.Application
 
         public void Run()
         {
+            scene.Start();
             while (!window.ShouldClose)
             {
                 clock.Tick();
                 window.ProcessEvents();
 
+                scene.Update(clock.DeltaTime);
+
                 renderer.Clear(Color.Black);
-                // Később itt jön a tényleges jelenet renderelése
+
+                // A 0-height window (minimized) would make the projection matrix invalid.
+                float aspectRatio = window.Height > 0
+                    ? window.Width / (float)window.Height
+                    : 0.0f;
+
+                if (aspectRatio > 0.0f &&
+                    CameraSystem.TryGetCameraData(scene.World, aspectRatio, out var cameraData))
+                {
+                    renderer.SetCamera(in cameraData);
+                }
+
+                renderer.SetModel(new ObjectBufferData
+                {
+                    Model = Matrix4x4.CreateRotationZ(clock.TotalTime)
+                });
+
+
                 renderer.Present();
 
                 clock.LimitFrameRate();
@@ -49,7 +74,8 @@ namespace Engine.Application
         }
         public void Shutdown()
         {
-            if( renderer != null && renderer is IDisposable disposableRenderer)
+            scene.Stop();
+            if ( renderer != null && renderer is IDisposable disposableRenderer)
             {
                 disposableRenderer.Dispose(); //We dont need to dispose the nullrenderer, but we need to dispose the real ones
             }
