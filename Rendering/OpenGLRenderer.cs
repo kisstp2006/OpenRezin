@@ -30,7 +30,7 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
 
     private readonly uint cameraUniformBuffer;
 
-
+    private readonly DebugProc debugCallback;
 
     private CameraBufferData currentCameraData = new()
     {
@@ -65,6 +65,18 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
         window.NativeWindow.MakeCurrent();
 
         gl = GL.GetApi(window.NativeWindow);
+
+        unsafe 
+        {
+#if DEBUG
+            gl.Enable(EnableCap.DebugOutput);
+            gl.Enable(EnableCap.DebugOutputSynchronous);
+            debugCallback = OnDebugMessage;
+            gl.DebugMessageCallback(debugCallback, null);
+#endif
+        }
+
+
 
         // Match Vulkan's 0..1 clip-space depth while keeping OpenGL's lower-left origin.
         // The vertex shader compiler handles the separate Y-axis flip.
@@ -144,6 +156,13 @@ public sealed class OpenGLRenderer : IRenderer, IDisposable
             0);
 
         return buffer;
+    }
+
+    private unsafe void OnDebugMessage(GLEnum source, GLEnum type, int id, GLEnum severity, int length, nint message, nint userParam)
+    {
+        // Convert the native message pointer to a managed string and log it.
+        string msg = System.Runtime.InteropServices.Marshal.PtrToStringAnsi((IntPtr)message) ?? string.Empty;
+        Log.Info($"GL Debug [{severity}] {type} ({id}) from {source}: {msg}");
     }
 
     public void Clear(EngineColor color)

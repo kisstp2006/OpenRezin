@@ -19,9 +19,15 @@ namespace Core.System
             options.Size = new Vector2D<int>(width, height);
             options.ShouldSwapAutomatically = swapAutomatically; // We will handle buffer swapping manually in the renderer
 
+#if DEBUG
+            ContextFlags contextFlags = ContextFlags.Debug;
+#else
+            ContextFlags contextFlags = ContextFlags.Default;
+#endif
+
             if (backend == RendererBackend.OpenGL)
             {
-                options.API = new GraphicsAPI(ContextAPI.OpenGL, ContextProfile.Core, ContextFlags.Default, new APIVersion(4, 6));
+                options.API = new GraphicsAPI(ContextAPI.OpenGL, ContextProfile.Core, contextFlags, new APIVersion(4, 6));
             }
 
             window = Silk.NET.Windowing.Window.Create(options);

@@ -78,6 +78,10 @@ namespace Rendering
         private DescriptorPool cameraDescriptorPool;
         private DescriptorSet cameraDescriptorSet;
 
+        private Semaphore[] renderFinishedSemaphores;   // one per swapchain image
+
+        private const string ValidationLayerName = "VK_LAYER_KHRONOS_validation";
+
         private CameraBufferData currentCameraData = new()
         {
             View = Matrix4x4.Identity,
@@ -339,27 +343,48 @@ namespace Rendering
             // Ask the windowing library which instance extensions the OS needs for presentation.
             var reqiredExtensions = window.NativeWindow.VkSurface!.GetRequiredExtensions(out uint extensionCount);
 
-            var createInfo = new InstanceCreateInfo
-            {
-                SType = StructureType.InstanceCreateInfo,
-                PApplicationInfo = &appInfo,
-                EnabledExtensionCount = extensionCount,
-                PpEnabledExtensionNames = reqiredExtensions,
-                EnabledLayerCount = 0
-            };
+            // Stays empty in release builds, or when the SDK isn't installed on this machine.
+            byte*[] enabledLayers = new byte*[0];
+            byte* layerName = null;
 
-            if (vk.CreateInstance(in createInfo, null, out instance) != Result.Success)
+#if DEBUG
+            if (IsValidationLayerAvailable(ValidationLayerName))
             {
-                Log.Error("Failed to create Vulkan instance.");
-                throw new Exception("Failed to create Vulkan instance.");
+                layerName = (byte*)Marshal.StringToHGlobalAnsi(ValidationLayerName);
+                enabledLayers = new byte*[] { layerName };
+                Log.Info($"Enabling {ValidationLayerName}.");
+            }
+            else
+            {
+                Log.Info($"{ValidationLayerName} not available - continuing without validation.");
+            }
+#endif
+
+            fixed (byte** enabledLayersPtr = enabledLayers)
+            {
+                var createInfo = new InstanceCreateInfo
+                {
+                    SType = StructureType.InstanceCreateInfo,
+                    PApplicationInfo = &appInfo,
+                    EnabledExtensionCount = extensionCount,
+                    PpEnabledExtensionNames = reqiredExtensions,
+                    EnabledLayerCount = (uint)enabledLayers.Length,
+                    PpEnabledLayerNames = enabledLayersPtr
+                };
+
+                if (vk.CreateInstance(in createInfo, null, out instance) != Result.Success)
+                {
+                    Log.Error("Failed to create Vulkan instance.");
+                    throw new Exception("Failed to create Vulkan instance.");
+                }
             }
 
             // The native strings were only needed for the call above.
             Marshal.FreeHGlobal((IntPtr)appInfo.PApplicationName);
             Marshal.FreeHGlobal((IntPtr)appInfo.PEngineName);
 
-
-
+            if (layerName != null)
+                Marshal.FreeHGlobal((IntPtr)layerName);
         }
 
         // Prefers a discrete GPU, falls back to integrated, then to whatever is available.
@@ -1279,10 +1304,17 @@ namespace Rendering
                 throw new Exception("Failed to create image available semaphore.");
             }
 
-            if (vk.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphore) != Result.Success)
+            // A presented image's semaphore stays in use until that image is acquired
+            // again, so each swapchain image needs its own.
+            renderFinishedSemaphores = new Semaphore[swapchainImages.Length];
+
+            for (int i = 0; i < renderFinishedSemaphores.Length; i++)
             {
-                Log.Error("Failed to create render finished semaphore.");
-                throw new Exception("Failed to create render finished semaphore.");
+                if (vk.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphores[i]) != Result.Success)
+                {
+                    Log.Error($"Failed to create render finished semaphore {i}.");
+                    throw new Exception($"Failed to create render finished semaphore {i}.");
+                }
             }
 
             var fenceInfo = new FenceCreateInfo
@@ -1297,7 +1329,7 @@ namespace Rendering
                 throw new Exception("Failed to create in-flight fence.");
             }
         }
-
+        
         private void RecordCommandBuffer(CommandBuffer commandBuffer, uint imageIndex)
         {
             var beginInfo = new CommandBufferBeginInfo { SType = StructureType.CommandBufferBeginInfo };
@@ -1349,6 +1381,26 @@ namespace Rendering
                 Log.Error("Failed to record command buffer.");
                 throw new Exception("Failed to record command buffer.");
             }
+        }
+
+        private bool IsValidationLayerAvailable(string layerName)
+        {
+            uint layerCount = 0;
+            vk.EnumerateInstanceLayerProperties(ref layerCount, null);
+            var availableLayers = new LayerProperties[layerCount];
+            fixed (LayerProperties* availableLayersPtr = availableLayers)
+            {
+                vk.EnumerateInstanceLayerProperties(ref layerCount, availableLayersPtr);
+            }
+            foreach (var layer in availableLayers)
+            {
+                string currentLayerName = Marshal.PtrToStringAnsi((IntPtr)layer.LayerName)!;
+                if (currentLayerName == layerName)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void CleanupSwapchain()
@@ -1419,7 +1471,7 @@ namespace Rendering
 
             var waitSemaphores = stackalloc[] { imageAvailableSemaphore };
             var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
-            var signalSemaphores = stackalloc[] { renderFinishedSemaphore };
+            var signalSemaphores = stackalloc[] { renderFinishedSemaphores[imageIndex] };
             var commandBuffer = commandBuffers[imageIndex];
 
             var submitInfo = new SubmitInfo
@@ -1483,7 +1535,10 @@ namespace Rendering
             vk.UnmapMemory(device, cameraUniformBufferMemory);
             vk.DestroyBuffer(device, cameraUniformBuffer, null);
             vk.FreeMemory(device, cameraUniformBufferMemory, null);
-            vk.DestroySemaphore(device, renderFinishedSemaphore, null);
+            foreach (var semaphore in renderFinishedSemaphores)
+            {
+                vk.DestroySemaphore(device, semaphore, null);
+            }
             vk.DestroySemaphore(device, imageAvailableSemaphore, null);
             vk.DestroyFence(device, inFlightFence, null);
             vk.DestroyCommandPool(device, commandPool, null);
