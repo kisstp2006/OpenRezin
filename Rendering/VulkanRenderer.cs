@@ -62,7 +62,7 @@ namespace Rendering
         private Fence inFlightFence;
 
         private Foundation.Math.Color clearColor;
-        private SilkWindow window;
+        private readonly SilkWindow window;
 
         private Buffer vertexBuffer;
         private DeviceMemory vertexBufferMemory;
@@ -107,7 +107,7 @@ namespace Rendering
             // Nullable because we don't know yet whether this GPU even has a queue family yet
             public uint? PresentFamily { get; set; }
             // True once every queue family we need (currently just graphics) has been found.
-            public bool IsComplete() => GraphicsFamily.HasValue && PresentFamily.HasValue;
+            public readonly bool IsComplete() => GraphicsFamily.HasValue && PresentFamily.HasValue;
 
         
         }
